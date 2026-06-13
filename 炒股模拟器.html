@@ -1,0 +1,2414 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>炒股模拟器</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --surface: #ffffff;
+      --surface-2: #f7f9fc;
+      --line: #d7dde7;
+      --line-strong: #b7c2d2;
+      --text: #172033;
+      --muted: #667085;
+      --accent: #1769aa;
+      --accent-2: #0f8a75;
+      --red: #d23b3b;
+      --green: #118a55;
+      --amber: #b96b00;
+      --shadow: 0 18px 38px rgba(18, 32, 56, 0.09);
+      --radius: 8px;
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--text);
+      background:
+        linear-gradient(180deg, #f7fafc 0%, var(--bg) 44%, #e8edf4 100%);
+    }
+
+    body {
+      overflow-x: hidden;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--text);
+      min-height: 36px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    button:hover {
+      border-color: #7e91aa;
+      background: #fbfdff;
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    button.danger {
+      color: #a72323;
+      border-color: #e0b4b4;
+      background: #fff8f8;
+    }
+
+    button.ghost {
+      background: transparent;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      min-height: 36px;
+      padding: 7px 9px;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 78px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(23, 105, 170, 0.13);
+    }
+
+    label {
+      display: block;
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: #13223a;
+      color: #fff;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.1;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .cover {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
+      gap: 30px;
+      align-items: center;
+      max-width: 1180px;
+      width: calc(100% - 36px);
+      margin: 0 auto;
+      padding: 54px 0 38px;
+    }
+
+    .cover-main {
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(135deg, rgba(23, 105, 170, 0.14), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      box-shadow: var(--shadow);
+      padding: 34px;
+      display: grid;
+      align-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .market-grid {
+      position: absolute;
+      inset: auto 24px 24px 24px;
+      height: 210px;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    .cover h2 {
+      font-size: clamp(38px, 6vw, 72px);
+      line-height: 0.98;
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .cover-copy {
+      max-width: 620px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-copy p {
+      margin: 18px 0 0;
+      color: #3f4d62;
+      font-size: 17px;
+      line-height: 1.7;
+    }
+
+    .big-start {
+      width: min(100%, 360px);
+      min-height: 96px;
+      justify-self: start;
+      align-self: end;
+      font-size: 28px;
+      font-weight: 800;
+      background: #141f31;
+      color: #fff;
+      border-color: #141f31;
+      box-shadow: 0 18px 36px rgba(20, 31, 49, 0.22);
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-side {
+      display: grid;
+      gap: 12px;
+    }
+
+    .cover-metric {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: 0 10px 24px rgba(18, 32, 56, 0.06);
+    }
+
+    .cover-metric strong {
+      display: block;
+      font-size: 26px;
+      margin-bottom: 5px;
+    }
+
+    .cover-metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .workspace {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px;
+      align-items: start;
+    }
+
+    .sidebar {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 6px 18px rgba(18, 32, 56, 0.04);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-2);
+      gap: 8px;
+    }
+
+    .panel-head h2,
+    .panel-head h3 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .panel-body {
+      padding: 12px;
+      display: grid;
+      gap: 11px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .button-row > button {
+      flex: 1 1 auto;
+    }
+
+    .dataset-list {
+      max-height: 190px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    th,
+    td {
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      background: #f3f6fa;
+      color: var(--muted);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td button {
+      min-height: 28px;
+      padding: 4px 7px;
+      font-size: 12px;
+    }
+
+    .main {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto auto;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(118px, 1fr));
+      gap: 8px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.95);
+      padding: 10px;
+      min-height: 72px;
+    }
+
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 17px;
+      overflow-wrap: anywhere;
+    }
+
+    .positive { color: var(--red); }
+    .negative { color: var(--green); }
+    .neutral { color: var(--muted); }
+
+    .chart-panel {
+      display: grid;
+      grid-template-rows: auto auto;
+      min-width: 0;
+    }
+
+    .chart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      border-radius: var(--radius) var(--radius) 0 0;
+      background: rgba(255, 255, 255, 0.94);
+    }
+
+    .chart-title {
+      min-width: 0;
+    }
+
+    .chart-title strong {
+      display: block;
+      font-size: 15px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .chart-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .indicator-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .indicator-strip .pill {
+      min-height: 26px;
+      background: #fff;
+    }
+
+    .canvas-wrap {
+      height: clamp(380px, 54vh, 620px);
+      min-height: 380px;
+      border: 1px solid var(--line);
+      border-radius: 0 0 var(--radius) var(--radius);
+      background: #fff;
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    #priceCanvas {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .lower-grid {
+      display: grid;
+      grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 0.9fr);
+      gap: 12px;
+    }
+
+    .trade-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .quick-buttons {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .ledger {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .ledger-item {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    .ledger-item:last-child {
+      border-bottom: 0;
+    }
+
+    .ledger-time {
+      color: var(--muted);
+    }
+
+    .mini-canvas {
+      height: 222px;
+      min-height: 222px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .status {
+      min-height: 28px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .status.error { color: #b42318; }
+    .status.ok { color: #067647; }
+
+    .file-input {
+      display: none;
+    }
+
+    @media (max-width: 1180px) {
+      .summary-grid {
+        grid-template-columns: repeat(4, minmax(118px, 1fr));
+      }
+
+      .workspace {
+        grid-template-columns: 310px minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 920px) {
+      .topbar {
+        height: auto;
+        align-items: flex-start;
+        padding: 12px;
+        flex-direction: column;
+      }
+
+      .top-actions {
+        justify-content: flex-start;
+      }
+
+      .cover {
+        grid-template-columns: 1fr;
+        width: calc(100% - 24px);
+        padding: 24px 0;
+      }
+
+      .cover-main {
+        min-height: 480px;
+        padding: 24px;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+        padding: 10px;
+      }
+
+      .lower-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .field-grid,
+      .trade-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .quick-buttons {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .big-start {
+        width: 100%;
+        min-height: 86px;
+        font-size: 24px;
+      }
+
+      .cover h2 {
+        font-size: 42px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">股</div>
+        <div>
+          <h1>炒股模拟器</h1>
+          <p>本地仓库 · K 线回放 · 交易账户模拟</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="pill">仓库 <strong id="repoCount">0</strong></span>
+        <span class="pill">当前 <strong id="activeSymbol">未选择</strong></span>
+        <button id="homeBtn" class="ghost" type="button">首页</button>
+        <button id="showAppBtn" class="primary" type="button">进入模拟</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="cover" class="cover">
+        <div class="cover-main">
+          <div class="cover-copy">
+            <h2>炒股模拟器</h2>
+            <p>把历史行情存进本地仓库，选一个时间点开始，只用当时已经发生的数据做买卖决策。</p>
+          </div>
+          <button id="startBtn" class="big-start" type="button">开始模拟</button>
+          <canvas id="coverCanvas" class="market-grid" aria-hidden="true"></canvas>
+        </div>
+        <div class="cover-side">
+          <div class="cover-metric">
+            <strong id="coverDatasetCount">0</strong>
+            <span>已缓存数据集</span>
+          </div>
+          <div class="cover-metric">
+            <strong id="coverBarCount">0</strong>
+            <span>本地 K 线数量</span>
+          </div>
+          <div class="cover-metric">
+            <strong>1m / 5m / 1d</strong>
+            <span>支持分钟、小时、日线回放</span>
+          </div>
+          <div class="cover-metric">
+            <strong>分红 / 拆股 / 印花税</strong>
+            <span>按持仓和费用参数结算</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="workspace" class="workspace hidden">
+        <aside class="sidebar">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>数据仓库</h2>
+              <span class="pill" id="storageMode">IndexedDB</span>
+            </div>
+            <div class="panel-body">
+              <div>
+                <label for="symbolInput">股票代码</label>
+                <input id="symbolInput" value="AAPL" autocomplete="off" />
+              </div>
+              <div class="field-grid">
+                <div>
+                  <label for="intervalSelect">K 线周期</label>
+                  <select id="intervalSelect">
+                    <option value="1m">1 分钟</option>
+                    <option value="2m">2 分钟</option>
+                    <option value="5m">5 分钟</option>
+                    <option value="15m">15 分钟</option>
+                    <option value="30m">30 分钟</option>
+                    <option value="60m">60 分钟</option>
+                    <option value="1d" selected>日线</option>
+                    <option value="1wk">周线</option>
+                    <option value="1mo">月线</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="rangeSelect">下载范围</label>
+                  <select id="rangeSelect">
+                    <option value="7d">7 天</option>
+                    <option value="30d">30 天</option>
+                    <option value="60d">60 天</option>
+                    <option value="1y">1 年</option>
+                    <option value="5y">5 年</option>
+                    <option value="10y">10 年</option>
+                    <option value="max" selected>全部</option>
+                  </select>
+                </div>
+              </div>
+              <div class="button-row">
+                <button id="downloadBtn" class="primary" type="button">下载到仓库</button>
+                <button id="demoBtn" type="button">载入演示</button>
+              </div>
+              <div>
+                <label for="watchlistInput">主流池</label>
+                <textarea id="watchlistInput">AAPL, MSFT, NVDA, TSLA, AMZN, GOOG, META, SPY, QQQ, 600519.SS, 000001.SZ, 0700.HK</textarea>
+              </div>
+              <div class="button-row">
+                <button id="batchBtn" type="button">下载主流池</button>
+                <button id="exportBtn" type="button">导出仓库</button>
+                <button id="importBtn" type="button">导入仓库</button>
+                <input id="importFile" class="file-input" type="file" accept=".json,.csv,.txt" multiple />
+              </div>
+              <div>
+                <label for="datasetSelect">当前数据集</label>
+                <select id="datasetSelect"></select>
+              </div>
+              <div class="dataset-list">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>代码</th>
+                      <th>周期</th>
+                      <th>K线</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="datasetTable"></tbody>
+                </table>
+              </div>
+              <div id="dataStatus" class="status">准备就绪。</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>模拟设置</h2>
+            </div>
+            <div class="panel-body">
+              <div>
+                <label for="startTimeInput">起始时间</label>
+                <input id="startTimeInput" type="datetime-local" />
+              </div>
+              <div class="field-grid">
+                <div>
+                  <label for="initialCashInput">初始现金</label>
+                  <input id="initialCashInput" type="number" min="0" step="1000" value="100000" />
+                </div>
+                <div>
+                  <label for="marketSelect">费用模板</label>
+                  <select id="marketSelect">
+                    <option value="cn">A 股</option>
+                    <option value="us">美股</option>
+                    <option value="hk">港股</option>
+                    <option value="custom">自定义</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-grid">
+                <div>
+                  <label for="commissionInput">佣金 %</label>
+                  <input id="commissionInput" type="number" min="0" step="0.001" value="0.03" />
+                </div>
+                <div>
+                  <label for="minFeeInput">最低佣金</label>
+                  <input id="minFeeInput" type="number" min="0" step="0.01" value="5" />
+                </div>
+              </div>
+              <div class="field-grid">
+                <div>
+                  <label for="stampInput">卖出印花税 %</label>
+                  <input id="stampInput" type="number" min="0" step="0.001" value="0.05" />
+                </div>
+                <div>
+                  <label for="slippageInput">滑点 %</label>
+                  <input id="slippageInput" type="number" min="0" step="0.001" value="0" />
+                </div>
+              </div>
+              <div class="button-row">
+                <button id="resetSimBtn" class="primary" type="button">开始 / 重置</button>
+                <button id="clearLedgerBtn" type="button">清空记录</button>
+              </div>
+              <div id="simStatus" class="status">请选择数据集。</div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="main">
+          <div class="summary-grid">
+            <div class="stat"><span>时间</span><strong id="statTime">--</strong></div>
+            <div class="stat"><span>价格</span><strong id="statPrice">--</strong></div>
+            <div class="stat"><span>现金</span><strong id="statCash">--</strong></div>
+            <div class="stat"><span>持仓</span><strong id="statQty">--</strong></div>
+            <div class="stat"><span>持仓市值</span><strong id="statPosition">--</strong></div>
+            <div class="stat"><span>总资产</span><strong id="statEquity">--</strong></div>
+            <div class="stat"><span>已实现</span><strong id="statRealized">--</strong></div>
+            <div class="stat"><span>浮动盈亏</span><strong id="statUnrealized">--</strong></div>
+          </div>
+
+          <section class="chart-panel">
+            <div class="chart-head">
+              <div class="chart-title">
+                <strong id="chartTitle">等待数据</strong>
+                <span id="chartSubTitle">只显示当前时间以前的行情</span>
+              </div>
+              <div class="indicator-strip">
+                <span class="pill" id="ma5Pill">MA5 --</span>
+                <span class="pill" id="ma20Pill">MA20 --</span>
+                <span class="pill" id="ma60Pill">MA60 --</span>
+                <span class="pill" id="rsiPill">RSI --</span>
+                <span class="pill" id="macdPill">MACD --</span>
+              </div>
+            </div>
+            <div class="canvas-wrap">
+              <canvas id="priceCanvas"></canvas>
+            </div>
+          </section>
+
+          <div class="lower-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <h3>交易与快进</h3>
+                <span class="pill" id="barIndexPill">0 / 0</span>
+              </div>
+              <div class="panel-body">
+                <div class="trade-grid">
+                  <div>
+                    <label for="qtyInput">数量</label>
+                    <input id="qtyInput" type="number" min="0" step="1" value="100" />
+                  </div>
+                  <div>
+                    <label for="customAmountInput">自定义快进</label>
+                    <div class="field-grid">
+                      <input id="customAmountInput" type="number" min="1" step="1" value="1" />
+                      <select id="customUnitSelect">
+                        <option value="second">秒</option>
+                        <option value="minute">分钟</option>
+                        <option value="hour">小时</option>
+                        <option value="day" selected>天</option>
+                        <option value="week">周</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="button-row">
+                  <button id="buyBtn" class="primary" type="button">买入</button>
+                  <button id="sellBtn" type="button">卖出</button>
+                  <button id="holdBtn" type="button">不动</button>
+                  <button id="maxBuyBtn" type="button">最大可买</button>
+                </div>
+                <div class="quick-buttons">
+                  <button data-step-bars="1" type="button">+1 K</button>
+                  <button data-step-bars="5" type="button">+5 K</button>
+                  <button data-step-time="1:day" type="button">+1 天</button>
+                  <button data-step-time="1:week" type="button">+1 周</button>
+                </div>
+                <div class="button-row">
+                  <button id="customForwardBtn" type="button">按自定义快进</button>
+                  <button id="toEndBtn" type="button">到最后</button>
+                </div>
+                <div id="tradeStatus" class="status">账户尚未开始。</div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h3>资产曲线</h3>
+                <span class="pill" id="returnPill">收益率 --</span>
+              </div>
+              <div class="panel-body">
+                <canvas id="equityCanvas" class="mini-canvas"></canvas>
+                <div class="ledger" id="ledger"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const DB_NAME = "stock-simulator-db-v1";
+      const STORE_NAME = "datasets";
+      const MAX_CHART_BARS = 150;
+      const CURRENCY_SYMBOLS = {
+        USD: "$",
+        CNY: "¥",
+        CNH: "¥",
+        HKD: "HK$",
+        JPY: "¥",
+        EUR: "€",
+        GBP: "£"
+      };
+
+      const state = {
+        db: null,
+        datasets: [],
+        active: null,
+        currentIndex: 0,
+        account: null,
+        history: [],
+        ledger: [],
+        processedEvents: new Set()
+      };
+
+      const el = {};
+      const ids = [
+        "repoCount", "activeSymbol", "coverDatasetCount", "coverBarCount", "cover", "workspace",
+        "startBtn", "showAppBtn", "homeBtn", "coverCanvas", "symbolInput", "intervalSelect",
+        "rangeSelect", "downloadBtn", "demoBtn", "watchlistInput", "batchBtn", "exportBtn",
+        "importBtn", "importFile", "datasetSelect", "datasetTable", "dataStatus", "startTimeInput",
+        "initialCashInput", "marketSelect", "commissionInput", "minFeeInput", "stampInput",
+        "slippageInput", "resetSimBtn", "clearLedgerBtn", "simStatus", "statTime", "statPrice",
+        "statCash", "statQty", "statPosition", "statEquity", "statRealized", "statUnrealized",
+        "chartTitle", "chartSubTitle", "ma5Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
+        "priceCanvas", "barIndexPill", "qtyInput", "customAmountInput", "customUnitSelect",
+        "buyBtn", "sellBtn", "holdBtn", "maxBuyBtn", "customForwardBtn", "toEndBtn",
+        "tradeStatus", "equityCanvas", "returnPill", "ledger", "storageMode"
+      ];
+
+      document.addEventListener("DOMContentLoaded", init);
+
+      async function init() {
+        ids.forEach((id) => { el[id] = document.getElementById(id); });
+        attachEvents();
+        drawCover();
+        try {
+          state.db = await openDatabase();
+          state.datasets = await getAllDatasets();
+          setStatus(el.dataStatus, "准备就绪。", "ok");
+        } catch (error) {
+          el.storageMode.textContent = "内存模式";
+          setStatus(el.dataStatus, "浏览器本地仓库不可用，本次仅临时保存。", "error");
+          console.error(error);
+        }
+        renderRepository();
+        if (state.datasets.length) {
+          selectDataset(state.datasets[0].id);
+        } else {
+          renderAll();
+        }
+        window.addEventListener("resize", debounce(() => {
+          drawCover();
+          renderCharts();
+        }, 120));
+      }
+
+      function attachEvents() {
+        el.startBtn.addEventListener("click", () => enterApp(true));
+        el.showAppBtn.addEventListener("click", () => enterApp(false));
+        el.homeBtn.addEventListener("click", () => {
+          el.cover.classList.remove("hidden");
+          el.workspace.classList.add("hidden");
+          drawCover();
+        });
+
+        el.downloadBtn.addEventListener("click", () => downloadCurrentSymbol());
+        el.demoBtn.addEventListener("click", () => saveDataset(generateDemoDataset()).then(() => {
+          setStatus(el.dataStatus, "已载入演示数据。", "ok");
+        }));
+        el.batchBtn.addEventListener("click", downloadWatchlist);
+        el.exportBtn.addEventListener("click", exportRepository);
+        el.importBtn.addEventListener("click", () => el.importFile.click());
+        el.importFile.addEventListener("change", importFiles);
+        el.datasetSelect.addEventListener("change", () => selectDataset(el.datasetSelect.value));
+        el.marketSelect.addEventListener("change", applyMarketTemplate);
+        el.resetSimBtn.addEventListener("click", resetSimulation);
+        el.clearLedgerBtn.addEventListener("click", () => {
+          state.ledger = [];
+          renderLedger();
+        });
+        el.buyBtn.addEventListener("click", () => trade("buy"));
+        el.sellBtn.addEventListener("click", () => trade("sell"));
+        el.holdBtn.addEventListener("click", () => {
+          pushLedger("不动", "保持当前持仓。");
+          setStatus(el.tradeStatus, "已记录不动。", "ok");
+        });
+        el.maxBuyBtn.addEventListener("click", setMaxBuyQuantity);
+        document.querySelectorAll("[data-step-bars]").forEach((button) => {
+          button.addEventListener("click", () => forwardBars(Number(button.dataset.stepBars)));
+        });
+        document.querySelectorAll("[data-step-time]").forEach((button) => {
+          const [amount, unit] = button.dataset.stepTime.split(":");
+          button.addEventListener("click", () => forwardTime(Number(amount), unit));
+        });
+        el.customForwardBtn.addEventListener("click", () => {
+          forwardTime(Number(el.customAmountInput.value || 1), el.customUnitSelect.value);
+        });
+        el.toEndBtn.addEventListener("click", () => forwardToIndex(getBars().length - 1));
+      }
+
+      function enterApp(loadDemoIfEmpty) {
+        el.cover.classList.add("hidden");
+        el.workspace.classList.remove("hidden");
+        if (loadDemoIfEmpty && state.datasets.length === 0) {
+          saveDataset(generateDemoDataset()).then(() => {
+            resetSimulation();
+            renderAll();
+          });
+        } else {
+          setTimeout(renderCharts, 20);
+        }
+      }
+
+      function openDatabase() {
+        return new Promise((resolve, reject) => {
+          if (!window.indexedDB) {
+            reject(new Error("IndexedDB is not supported."));
+            return;
+          }
+          const request = indexedDB.open(DB_NAME, 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME, { keyPath: "id" });
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      function getAllDatasets() {
+        if (!state.db) return Promise.resolve(state.datasets);
+        return new Promise((resolve, reject) => {
+          const tx = state.db.transaction(STORE_NAME, "readonly");
+          const store = tx.objectStore(STORE_NAME);
+          const request = store.getAll();
+          request.onsuccess = () => resolve((request.result || []).sort(compareDataset));
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      function putDataset(dataset) {
+        if (!state.db) {
+          const index = state.datasets.findIndex((item) => item.id === dataset.id);
+          if (index >= 0) state.datasets[index] = dataset;
+          else state.datasets.push(dataset);
+          return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+          const tx = state.db.transaction(STORE_NAME, "readwrite");
+          tx.objectStore(STORE_NAME).put(dataset);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      function deleteDatasetById(id) {
+        if (!state.db) {
+          state.datasets = state.datasets.filter((item) => item.id !== id);
+          return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+          const tx = state.db.transaction(STORE_NAME, "readwrite");
+          tx.objectStore(STORE_NAME).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function saveDataset(dataset) {
+        normalizeDataset(dataset);
+        await putDataset(dataset);
+        state.datasets = await getAllDatasets();
+        renderRepository();
+        selectDataset(dataset.id);
+      }
+
+      async function refreshRepository() {
+        state.datasets = await getAllDatasets();
+        renderRepository();
+      }
+
+      function compareDataset(a, b) {
+        const left = `${a.symbol || ""}_${a.interval || ""}`;
+        const right = `${b.symbol || ""}_${b.interval || ""}`;
+        return left.localeCompare(right);
+      }
+
+      async function downloadCurrentSymbol() {
+        const symbol = cleanSymbol(el.symbolInput.value);
+        if (!symbol) {
+          setStatus(el.dataStatus, "请输入股票代码。", "error");
+          return;
+        }
+        const interval = el.intervalSelect.value;
+        const range = el.rangeSelect.value;
+        try {
+          setStatus(el.dataStatus, `正在下载 ${symbol} ${interval}...`);
+          const dataset = await fetchMarketDataset(symbol, interval, range);
+          await saveDataset(dataset);
+          setStatus(el.dataStatus, `${symbol} 已保存，K 线 ${dataset.bars.length} 条。`, "ok");
+        } catch (error) {
+          console.error(error);
+          setStatus(el.dataStatus, `下载失败：${friendlyError(error)}`, "error");
+        }
+      }
+
+      async function downloadWatchlist() {
+        const symbols = el.watchlistInput.value
+          .split(/[,，\s]+/)
+          .map(cleanSymbol)
+          .filter(Boolean);
+        if (!symbols.length) {
+          setStatus(el.dataStatus, "主流池为空。", "error");
+          return;
+        }
+        const interval = el.intervalSelect.value;
+        const range = el.rangeSelect.value;
+        let ok = 0;
+        let fail = 0;
+        el.batchBtn.disabled = true;
+        for (const symbol of symbols) {
+          try {
+            setStatus(el.dataStatus, `正在下载 ${symbol}...`);
+            const dataset = await fetchMarketDataset(symbol, interval, range);
+            await putDataset(dataset);
+            ok += 1;
+          } catch (error) {
+            console.warn(symbol, error);
+            fail += 1;
+          }
+        }
+        el.batchBtn.disabled = false;
+        await refreshRepository();
+        if (state.datasets.length && !state.active) selectDataset(state.datasets[0].id);
+        renderRepository();
+        setStatus(el.dataStatus, `主流池完成：成功 ${ok}，失败 ${fail}。`, fail ? "error" : "ok");
+      }
+
+      async function fetchMarketDataset(symbol, interval, range) {
+        const safeRange = normalizeRangeForInterval(range, interval);
+        const dataset = await fetchYahooDataset(symbol, interval, safeRange);
+        if (safeRange !== range) {
+          dataset.range = safeRange;
+          dataset.source = `${dataset.source} · ${range} 已自动调整为 ${safeRange}`;
+        }
+        return dataset;
+      }
+
+      async function fetchYahooDataset(symbol, interval, range) {
+        const payload = await fetchYahooPayload(symbol, interval, range);
+        const result = payload && payload.chart && payload.chart.result && payload.chart.result[0];
+        const chartError = payload && payload.chart && payload.chart.error;
+        if (!result) {
+          throw new Error(chartError && chartError.description ? chartError.description : "没有返回行情。");
+        }
+        const quote = result.indicators && result.indicators.quote && result.indicators.quote[0];
+        if (!quote || !Array.isArray(result.timestamp)) {
+          throw new Error("行情格式不完整。");
+        }
+        const adj = result.indicators.adjclose && result.indicators.adjclose[0]
+          ? result.indicators.adjclose[0].adjclose
+          : [];
+        const bars = result.timestamp.map((stamp, index) => ({
+          t: stamp * 1000,
+          open: toFinite(quote.open && quote.open[index]),
+          high: toFinite(quote.high && quote.high[index]),
+          low: toFinite(quote.low && quote.low[index]),
+          close: toFinite(quote.close && quote.close[index]),
+          adjClose: toFinite(adj && adj[index]),
+          volume: toFinite(quote.volume && quote.volume[index], 0)
+        })).filter((bar) => isValidBar(bar));
+
+        if (!bars.length) {
+          throw new Error("没有可用 K 线。");
+        }
+
+        const events = result.events || {};
+        const dividends = Object.values(events.dividends || {}).map((item) => ({
+          t: Number(item.date) * 1000,
+          amount: Number(item.amount) || 0
+        })).filter((item) => item.t && item.amount);
+        const splits = Object.values(events.splits || {}).map((item) => {
+          const numerator = Number(item.numerator) || 1;
+          const denominator = Number(item.denominator) || 1;
+          return {
+            t: Number(item.date) * 1000,
+            ratio: denominator ? numerator / denominator : 1,
+            label: item.splitRatio || `${numerator}:${denominator}`
+          };
+        }).filter((item) => item.t && item.ratio > 0 && item.ratio !== 1);
+
+        const meta = result.meta || {};
+        const dataset = {
+          id: makeDatasetId(symbol, interval),
+          symbol: symbol.toUpperCase(),
+          displayName: meta.shortName || meta.longName || symbol.toUpperCase(),
+          interval,
+          range,
+          currency: meta.currency || guessCurrency(symbol),
+          exchange: meta.exchangeName || meta.fullExchangeName || "",
+          source: "Yahoo Finance Chart",
+          updatedAt: Date.now(),
+          bars,
+          dividends,
+          splits
+        };
+        normalizeDataset(dataset);
+        return dataset;
+      }
+
+      async function fetchYahooPayload(symbol, interval, range) {
+        const externalUrl = buildYahooUrl(symbol, interval, range);
+        const urls = [];
+        const helperUrl = buildHelperApiUrl("yahoo", { symbol, interval, range });
+        if (helperUrl) urls.push(helperUrl);
+        urls.push(externalUrl);
+
+        const errors = [];
+        for (const url of urls) {
+          try {
+            const response = await fetchWithTimeout(url, { mode: "cors" }, 12000);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return await response.json();
+          } catch (error) {
+            errors.push(error.message || String(error));
+          }
+        }
+        throw new Error(`所有行情源都无法连接：${errors.join("；")}`);
+      }
+
+      function buildYahooUrl(symbol, interval, range) {
+        const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
+        url.searchParams.set("range", range);
+        url.searchParams.set("interval", interval);
+        url.searchParams.set("events", "div,splits");
+        url.searchParams.set("includeAdjustedClose", "true");
+        url.searchParams.set("includePrePost", "false");
+        return url.toString();
+      }
+
+      function buildHelperApiUrl(endpoint, params) {
+        const query = new URLSearchParams(params).toString();
+        if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname)) {
+          return `/api/${endpoint}?${query}`;
+        }
+        return `http://127.0.0.1:8765/api/${endpoint}?${query}`;
+      }
+
+      async function fetchWithTimeout(url, options, timeoutMs) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(url, { ...(options || {}), signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      function normalizeRangeForInterval(range, interval) {
+        const intraday = ["1m", "2m", "5m", "15m", "30m", "60m"].includes(interval);
+        if (interval === "1m" && !["1d", "5d", "7d"].includes(range)) return "7d";
+        if (intraday && ["1y", "5y", "10y", "max"].includes(range)) return "60d";
+        return range;
+      }
+
+      function normalizeDataset(dataset) {
+        dataset.symbol = cleanSymbol(dataset.symbol || dataset.id || "UNKNOWN");
+        dataset.interval = dataset.interval || "1d";
+        dataset.id = dataset.id || makeDatasetId(dataset.symbol, dataset.interval);
+        dataset.currency = dataset.currency || guessCurrency(dataset.symbol);
+        dataset.bars = (dataset.bars || [])
+          .map((bar) => ({
+            t: Number(bar.t || bar.time || bar.date || Date.parse(bar.datetime || "")),
+            open: toFinite(bar.open),
+            high: toFinite(bar.high),
+            low: toFinite(bar.low),
+            close: toFinite(bar.close),
+            adjClose: toFinite(bar.adjClose || bar.adj_close || bar.adjustedClose || bar.close),
+            volume: toFinite(bar.volume || bar.vol, 0)
+          }))
+          .filter(isValidBar)
+          .sort((a, b) => a.t - b.t);
+        dataset.dividends = (dataset.dividends || [])
+          .map((item) => ({ t: Number(item.t || item.date || item.time), amount: Number(item.amount || item.dividend) || 0 }))
+          .filter((item) => item.t && item.amount)
+          .sort((a, b) => a.t - b.t);
+        dataset.splits = (dataset.splits || [])
+          .map((item) => ({ t: Number(item.t || item.date || item.time), ratio: Number(item.ratio) || 1, label: item.label || "" }))
+          .filter((item) => item.t && item.ratio > 0 && item.ratio !== 1)
+          .sort((a, b) => a.t - b.t);
+        computeIndicators(dataset.bars);
+      }
+
+      function isValidBar(bar) {
+        return Number.isFinite(bar.t)
+          && Number.isFinite(bar.open)
+          && Number.isFinite(bar.high)
+          && Number.isFinite(bar.low)
+          && Number.isFinite(bar.close)
+          && bar.high >= bar.low;
+      }
+
+      function toFinite(value, fallback = NaN) {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : fallback;
+      }
+
+      function computeIndicators(bars) {
+        addSma(bars, 5, "ma5");
+        addSma(bars, 20, "ma20");
+        addSma(bars, 60, "ma60");
+        addRsi(bars, 14);
+        addMacd(bars);
+      }
+
+      function addSma(bars, period, key) {
+        let sum = 0;
+        for (let i = 0; i < bars.length; i += 1) {
+          sum += bars[i].close;
+          if (i >= period) sum -= bars[i - period].close;
+          bars[i][key] = i >= period - 1 ? sum / period : null;
+        }
+      }
+
+      function addRsi(bars, period) {
+        let gain = 0;
+        let loss = 0;
+        for (let i = 1; i < bars.length; i += 1) {
+          const change = bars[i].close - bars[i - 1].close;
+          const up = Math.max(change, 0);
+          const down = Math.max(-change, 0);
+          if (i <= period) {
+            gain += up;
+            loss += down;
+            bars[i].rsi14 = null;
+            if (i === period) {
+              gain /= period;
+              loss /= period;
+              bars[i].rsi14 = rsiFromAvg(gain, loss);
+            }
+          } else {
+            gain = ((gain * (period - 1)) + up) / period;
+            loss = ((loss * (period - 1)) + down) / period;
+            bars[i].rsi14 = rsiFromAvg(gain, loss);
+          }
+        }
+        if (bars[0]) bars[0].rsi14 = null;
+      }
+
+      function rsiFromAvg(gain, loss) {
+        if (loss === 0) return 100;
+        const rs = gain / loss;
+        return 100 - (100 / (1 + rs));
+      }
+
+      function addMacd(bars) {
+        const closes = bars.map((bar) => bar.close);
+        const ema12 = ema(closes, 12);
+        const ema26 = ema(closes, 26);
+        const diff = closes.map((_, index) => {
+          if (ema12[index] == null || ema26[index] == null) return null;
+          return ema12[index] - ema26[index];
+        });
+        const dea = ema(diff, 9);
+        bars.forEach((bar, index) => {
+          bar.macd = diff[index];
+          bar.macdSignal = dea[index];
+          bar.macdHist = diff[index] != null && dea[index] != null ? diff[index] - dea[index] : null;
+        });
+      }
+
+      function ema(values, period) {
+        const out = Array(values.length).fill(null);
+        const k = 2 / (period + 1);
+        let count = 0;
+        let seed = 0;
+        let last = null;
+        for (let i = 0; i < values.length; i += 1) {
+          const value = values[i];
+          if (value == null || !Number.isFinite(value)) continue;
+          count += 1;
+          if (count <= period) {
+            seed += value;
+            if (count === period) {
+              last = seed / period;
+              out[i] = last;
+            }
+          } else {
+            last = value * k + last * (1 - k);
+            out[i] = last;
+          }
+        }
+        return out;
+      }
+
+      function generateDemoDataset() {
+        const bars = [];
+        const dividends = [];
+        let price = 108;
+        let seed = 42;
+        const day = 24 * 60 * 60 * 1000;
+        const start = Date.UTC(2022, 0, 3, 8, 0, 0);
+        for (let i = 0; i < 760; i += 1) {
+          const date = new Date(start + i * day);
+          if (date.getUTCDay() === 0 || date.getUTCDay() === 6) continue;
+          const drift = Math.sin(i / 35) * 0.006 + random(seed += 7) * 0.03 - 0.013;
+          const open = price * (1 + random(seed += 3) * 0.018 - 0.009);
+          const close = Math.max(12, open * (1 + drift));
+          const high = Math.max(open, close) * (1 + random(seed += 5) * 0.018);
+          const low = Math.min(open, close) * (1 - random(seed += 11) * 0.018);
+          const volume = Math.round(4000000 + random(seed += 13) * 14000000);
+          const t = date.getTime();
+          bars.push({ t, open, high, low, close, adjClose: close, volume });
+          if (date.getUTCMonth() % 3 === 2 && date.getUTCDate() < 8 && random(seed += 17) > 0.76) {
+            dividends.push({ t, amount: 0.18 + random(seed += 19) * 0.32 });
+          }
+          price = close;
+        }
+        const dataset = {
+          id: makeDatasetId("DEMO", "1d"),
+          symbol: "DEMO",
+          displayName: "演示股票",
+          interval: "1d",
+          range: "demo",
+          currency: "CNY",
+          exchange: "Local Demo",
+          source: "内置演示",
+          updatedAt: Date.now(),
+          bars,
+          dividends,
+          splits: []
+        };
+        normalizeDataset(dataset);
+        return dataset;
+      }
+
+      function random(seed) {
+        const x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+      }
+
+      function renderRepository() {
+        const totalBars = state.datasets.reduce((sum, item) => sum + (item.bars ? item.bars.length : 0), 0);
+        el.repoCount.textContent = String(state.datasets.length);
+        el.coverDatasetCount.textContent = String(state.datasets.length);
+        el.coverBarCount.textContent = compactNumber(totalBars);
+        el.datasetSelect.innerHTML = "";
+        if (!state.datasets.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "暂无数据";
+          el.datasetSelect.appendChild(option);
+        } else {
+          state.datasets.forEach((dataset) => {
+            const option = document.createElement("option");
+            option.value = dataset.id;
+            option.textContent = `${dataset.symbol} · ${dataset.interval} · ${dataset.bars.length}`;
+            el.datasetSelect.appendChild(option);
+          });
+        }
+        renderDatasetTable();
+        drawCover();
+      }
+
+      function renderDatasetTable() {
+        el.datasetTable.innerHTML = "";
+        if (!state.datasets.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 4;
+          cell.textContent = "暂无数据";
+          row.appendChild(cell);
+          el.datasetTable.appendChild(row);
+          return;
+        }
+        state.datasets.forEach((dataset) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${escapeHtml(dataset.symbol)}</td>
+            <td>${escapeHtml(dataset.interval)}</td>
+            <td>${dataset.bars.length}</td>
+            <td></td>
+          `;
+          const actions = row.lastElementChild;
+          const loadButton = document.createElement("button");
+          loadButton.type = "button";
+          loadButton.textContent = "载入";
+          loadButton.addEventListener("click", () => selectDataset(dataset.id));
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "danger";
+          deleteButton.textContent = "删";
+          deleteButton.addEventListener("click", async () => {
+            await deleteDatasetById(dataset.id);
+            if (state.active && state.active.id === dataset.id) {
+              state.active = null;
+              state.account = null;
+            }
+            await refreshRepository();
+            if (state.datasets.length) selectDataset(state.datasets[0].id);
+            else renderAll();
+          });
+          actions.append(loadButton, document.createTextNode(" "), deleteButton);
+          el.datasetTable.appendChild(row);
+        });
+      }
+
+      function selectDataset(id) {
+        const dataset = state.datasets.find((item) => item.id === id);
+        if (!dataset) {
+          state.active = null;
+          el.activeSymbol.textContent = "未选择";
+          renderAll();
+          return;
+        }
+        state.active = dataset;
+        el.datasetSelect.value = dataset.id;
+        el.symbolInput.value = dataset.symbol;
+        el.intervalSelect.value = dataset.interval;
+        el.activeSymbol.textContent = dataset.symbol;
+        setTimeInputFromDataset(dataset);
+        applyDetectedMarket(dataset.symbol);
+        resetSimulation();
+      }
+
+      function setTimeInputFromDataset(dataset) {
+        const bars = dataset.bars;
+        if (!bars.length) return;
+        const first = bars[0].t;
+        const middle = bars[Math.floor(Math.max(0, bars.length * 0.42))].t;
+        const last = bars[bars.length - 1].t;
+        el.startTimeInput.min = toInputDateTime(first);
+        el.startTimeInput.max = toInputDateTime(last);
+        el.startTimeInput.value = toInputDateTime(middle);
+      }
+
+      function applyDetectedMarket(symbol) {
+        if (/\.SS$|\.SZ$|^SH|^SZ/i.test(symbol) || symbol === "DEMO") {
+          el.marketSelect.value = "cn";
+        } else if (/\.HK$/i.test(symbol)) {
+          el.marketSelect.value = "hk";
+        } else {
+          el.marketSelect.value = "us";
+        }
+        applyMarketTemplate();
+      }
+
+      function applyMarketTemplate() {
+        const market = el.marketSelect.value;
+        if (market === "cn") {
+          el.commissionInput.value = "0.03";
+          el.minFeeInput.value = "5";
+          el.stampInput.value = "0.05";
+          el.slippageInput.value = "0";
+        } else if (market === "hk") {
+          el.commissionInput.value = "0.03";
+          el.minFeeInput.value = "0";
+          el.stampInput.value = "0.1";
+          el.slippageInput.value = "0";
+        } else if (market === "us") {
+          el.commissionInput.value = "0";
+          el.minFeeInput.value = "0";
+          el.stampInput.value = "0";
+          el.slippageInput.value = "0";
+        }
+      }
+
+      function resetSimulation() {
+        if (!state.active || !state.active.bars.length) {
+          setStatus(el.simStatus, "请选择数据集。", "error");
+          renderAll();
+          return;
+        }
+        const bars = getBars();
+        const targetTime = el.startTimeInput.value ? fromInputDateTime(el.startTimeInput.value) : bars[0].t;
+        state.currentIndex = Math.max(0, findBarIndexAtOrBefore(bars, targetTime));
+        const initialCash = Number(el.initialCashInput.value || 0);
+        state.account = {
+          initialCash,
+          cash: initialCash,
+          qty: 0,
+          avgCost: 0,
+          realized: 0,
+          dividends: 0,
+          fees: 0
+        };
+        state.history = [];
+        state.ledger = [];
+        state.processedEvents = new Set();
+        recordHistory();
+        pushLedger("开始", `${state.active.symbol} 从 ${formatDateTime(currentBar().t)} 开始，现金 ${formatMoney(initialCash)}。`);
+        setStatus(el.simStatus, "模拟已开始。", "ok");
+        renderAll();
+      }
+
+      function getBars() {
+        return state.active ? state.active.bars : [];
+      }
+
+      function currentBar() {
+        const bars = getBars();
+        return bars[state.currentIndex] || null;
+      }
+
+      function currentPrice() {
+        const bar = currentBar();
+        return bar ? bar.close : 0;
+      }
+
+      function trade(side) {
+        if (!ensureAccount()) return;
+        const price = currentPrice();
+        let qty = Math.floor(Number(el.qtyInput.value || 0));
+        if (!qty || qty < 0) {
+          setStatus(el.tradeStatus, "数量需要大于 0。", "error");
+          return;
+        }
+        if (side === "buy") {
+          const maxQty = maxAffordableQty(price);
+          if (maxQty <= 0) {
+            setStatus(el.tradeStatus, "现金不足。", "error");
+            return;
+          }
+          qty = Math.min(qty, maxQty);
+          const value = qty * price;
+          const fee = tradeFee(value, "buy");
+          const total = value + fee;
+          const previousQtyValue = state.account.qty * state.account.avgCost;
+          state.account.cash -= total;
+          state.account.qty += qty;
+          state.account.avgCost = state.account.qty
+            ? (previousQtyValue + value + fee) / state.account.qty
+            : 0;
+          state.account.fees += fee;
+          pushLedger("买入", `${qty} 股 @ ${formatPrice(price)}，费用 ${formatMoney(fee)}。`);
+          setStatus(el.tradeStatus, `已买入 ${qty} 股。`, "ok");
+        } else {
+          qty = Math.min(qty, state.account.qty);
+          if (qty <= 0) {
+            setStatus(el.tradeStatus, "没有可卖持仓。", "error");
+            return;
+          }
+          const value = qty * price;
+          const fee = tradeFee(value, "sell");
+          const proceeds = value - fee;
+          const cost = qty * state.account.avgCost;
+          state.account.cash += proceeds;
+          state.account.qty -= qty;
+          state.account.realized += proceeds - cost;
+          state.account.fees += fee;
+          if (state.account.qty === 0) state.account.avgCost = 0;
+          pushLedger("卖出", `${qty} 股 @ ${formatPrice(price)}，费用 ${formatMoney(fee)}。`);
+          setStatus(el.tradeStatus, `已卖出 ${qty} 股。`, "ok");
+        }
+        recordHistory();
+        renderAll();
+      }
+
+      function ensureAccount() {
+        if (!state.active) {
+          setStatus(el.tradeStatus, "请选择数据集。", "error");
+          return false;
+        }
+        if (!state.account) {
+          resetSimulation();
+        }
+        return Boolean(state.account);
+      }
+
+      function setMaxBuyQuantity() {
+        if (!ensureAccount()) return;
+        el.qtyInput.value = String(maxAffordableQty(currentPrice()));
+      }
+
+      function maxAffordableQty(price) {
+        const account = state.account;
+        let qty = Math.floor(account.cash / Math.max(price, 0.000001));
+        while (qty > 0) {
+          const value = qty * price;
+          if (value + tradeFee(value, "buy") <= account.cash + 1e-8) break;
+          qty -= 1;
+        }
+        return Math.max(0, qty);
+      }
+
+      function tradeFee(value, side) {
+        const commissionRate = Number(el.commissionInput.value || 0) / 100;
+        const stampRate = side === "sell" ? Number(el.stampInput.value || 0) / 100 : 0;
+        const slippageRate = Number(el.slippageInput.value || 0) / 100;
+        const minFee = Number(el.minFeeInput.value || 0);
+        const commission = commissionRate > 0 ? Math.max(minFee, value * commissionRate) : 0;
+        return commission + value * stampRate + value * slippageRate;
+      }
+
+      function forwardBars(count) {
+        if (!ensureAccount()) return;
+        const target = Math.min(getBars().length - 1, state.currentIndex + Math.max(1, count));
+        forwardToIndex(target);
+      }
+
+      function forwardTime(amount, unit) {
+        if (!ensureAccount()) return;
+        const bars = getBars();
+        const now = currentBar().t;
+        const targetTime = now + Number(amount || 1) * unitMs(unit);
+        let target = findBarIndexAtOrAfter(bars, targetTime);
+        if (target <= state.currentIndex && state.currentIndex < bars.length - 1) {
+          target = state.currentIndex + 1;
+        }
+        forwardToIndex(target);
+      }
+
+      function forwardToIndex(target) {
+        if (!ensureAccount()) return;
+        const bars = getBars();
+        if (!bars.length) return;
+        const bounded = Math.max(0, Math.min(target, bars.length - 1));
+        if (bounded === state.currentIndex) {
+          setStatus(el.tradeStatus, "已经在可用数据边界。", "error");
+          renderAll();
+          return;
+        }
+        applyCorporateActions(state.currentIndex, bounded);
+        state.currentIndex = bounded;
+        recordHistory();
+        setStatus(el.tradeStatus, `时间已快进到 ${formatDateTime(currentBar().t)}。`, "ok");
+        renderAll();
+      }
+
+      function applyCorporateActions(fromIndex, toIndex) {
+        if (!state.active || !state.account) return;
+        const bars = getBars();
+        const fromTime = bars[Math.min(fromIndex, toIndex)].t;
+        const toTime = bars[Math.max(fromIndex, toIndex)].t;
+        const events = [
+          ...(state.active.dividends || []).map((item, index) => ({ ...item, key: `d${index}`, type: "dividend" })),
+          ...(state.active.splits || []).map((item, index) => ({ ...item, key: `s${index}`, type: "split" }))
+        ].sort((a, b) => a.t - b.t);
+        events.forEach((event) => {
+          if (event.t <= fromTime || event.t > toTime || state.processedEvents.has(event.key)) return;
+          state.processedEvents.add(event.key);
+          if (event.type === "dividend" && state.account.qty > 0) {
+            const cash = state.account.qty * event.amount;
+            state.account.cash += cash;
+            state.account.dividends += cash;
+            pushLedger("分红", `${formatDateTime(event.t)} 每股 ${formatPrice(event.amount)}，到账 ${formatMoney(cash)}。`);
+          }
+          if (event.type === "split" && state.account.qty > 0 && event.ratio > 0) {
+            state.account.qty = Math.floor(state.account.qty * event.ratio * 1000000) / 1000000;
+            state.account.avgCost = state.account.avgCost / event.ratio;
+            pushLedger("拆股", `${formatDateTime(event.t)} 比例 ${event.label || event.ratio}，持仓变为 ${formatQuantity(state.account.qty)}。`);
+          }
+        });
+      }
+
+      function recordHistory() {
+        if (!state.account || !currentBar()) return;
+        const equity = accountEquity();
+        state.history.push({
+          t: currentBar().t,
+          price: currentPrice(),
+          cash: state.account.cash,
+          qty: state.account.qty,
+          equity
+        });
+      }
+
+      function accountEquity() {
+        if (!state.account) return 0;
+        return state.account.cash + state.account.qty * currentPrice();
+      }
+
+      function renderAll() {
+        renderStats();
+        renderIndicators();
+        renderLedger();
+        renderCharts();
+      }
+
+      function renderStats() {
+        const bar = currentBar();
+        const account = state.account;
+        const currency = state.active ? state.active.currency : "";
+        if (!bar || !account) {
+          el.statTime.textContent = "--";
+          el.statPrice.textContent = "--";
+          el.statCash.textContent = "--";
+          el.statQty.textContent = "--";
+          el.statPosition.textContent = "--";
+          el.statEquity.textContent = "--";
+          el.statRealized.textContent = "--";
+          el.statUnrealized.textContent = "--";
+          el.barIndexPill.textContent = "0 / 0";
+          el.returnPill.textContent = "收益率 --";
+          return;
+        }
+        const price = bar.close;
+        const positionValue = account.qty * price;
+        const equity = accountEquity();
+        const unrealized = account.qty * (price - account.avgCost);
+        const returnRate = account.initialCash ? (equity / account.initialCash - 1) * 100 : 0;
+        el.statTime.textContent = formatDateTime(bar.t);
+        el.statPrice.textContent = formatMoney(price, currency);
+        el.statCash.textContent = formatMoney(account.cash, currency);
+        el.statQty.textContent = formatQuantity(account.qty);
+        el.statPosition.textContent = formatMoney(positionValue, currency);
+        setSigned(el.statEquity, equity, currency, false);
+        setSigned(el.statRealized, account.realized, currency, true);
+        setSigned(el.statUnrealized, unrealized, currency, true);
+        el.barIndexPill.textContent = `${state.currentIndex + 1} / ${getBars().length}`;
+        el.returnPill.textContent = `收益率 ${formatNumber(returnRate, 2)}%`;
+        el.returnPill.className = `pill ${returnRate > 0 ? "positive" : returnRate < 0 ? "negative" : ""}`;
+        el.chartTitle.textContent = state.active
+          ? `${state.active.symbol} ${state.active.displayName || ""}`.trim()
+          : "等待数据";
+        el.chartSubTitle.textContent = `${state.active.interval} · ${state.active.source || ""} · ${formatDateRange(state.active)}`;
+      }
+
+      function setSigned(node, value, currency, signed) {
+        node.textContent = `${signed && value > 0 ? "+" : ""}${formatMoney(value, currency)}`;
+        node.className = value > 0 ? "positive" : value < 0 ? "negative" : "neutral";
+      }
+
+      function renderIndicators() {
+        const bar = currentBar();
+        if (!bar) {
+          el.ma5Pill.textContent = "MA5 --";
+          el.ma20Pill.textContent = "MA20 --";
+          el.ma60Pill.textContent = "MA60 --";
+          el.rsiPill.textContent = "RSI --";
+          el.macdPill.textContent = "MACD --";
+          return;
+        }
+        el.ma5Pill.textContent = `MA5 ${fmtIndicator(bar.ma5)}`;
+        el.ma20Pill.textContent = `MA20 ${fmtIndicator(bar.ma20)}`;
+        el.ma60Pill.textContent = `MA60 ${fmtIndicator(bar.ma60)}`;
+        el.rsiPill.textContent = `RSI ${fmtIndicator(bar.rsi14)}`;
+        el.macdPill.textContent = `MACD ${fmtIndicator(bar.macd)}`;
+      }
+
+      function renderLedger() {
+        el.ledger.innerHTML = "";
+        if (!state.ledger.length) {
+          const empty = document.createElement("div");
+          empty.className = "ledger-item";
+          empty.innerHTML = '<span class="ledger-time">--</span><span>暂无记录</span>';
+          el.ledger.appendChild(empty);
+          return;
+        }
+        state.ledger.slice(-80).reverse().forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "ledger-item";
+          row.innerHTML = `<span class="ledger-time">${escapeHtml(item.time)}</span><span><strong>${escapeHtml(item.type)}</strong> ${escapeHtml(item.text)}</span>`;
+          el.ledger.appendChild(row);
+        });
+      }
+
+      function pushLedger(type, text) {
+        const time = currentBar() ? formatShortDate(currentBar().t) : "--";
+        state.ledger.push({ time, type, text });
+      }
+
+      function renderCharts() {
+        drawPriceChart();
+        drawEquityChart();
+      }
+
+      function drawCover() {
+        const canvas = el.coverCanvas;
+        if (!canvas) return;
+        const ctx = setupCanvas(canvas);
+        if (!ctx) return;
+        const { width, height } = canvas.getBoundingClientRect();
+        ctx.clearRect(0, 0, width, height);
+        const bars = state.active ? state.active.bars.slice(-80) : generateCoverBars();
+        const pad = 12;
+        const min = Math.min(...bars.map((bar) => bar.low));
+        const max = Math.max(...bars.map((bar) => bar.high));
+        const x = (index) => pad + index * ((width - pad * 2) / Math.max(1, bars.length - 1));
+        const y = (value) => height - pad - ((value - min) / Math.max(0.0001, max - min)) * (height - pad * 2);
+        ctx.strokeStyle = "rgba(19, 34, 58, 0.08)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 6; i += 1) {
+          const yy = pad + i * ((height - pad * 2) / 5);
+          ctx.beginPath();
+          ctx.moveTo(pad, yy);
+          ctx.lineTo(width - pad, yy);
+          ctx.stroke();
+        }
+        bars.forEach((bar, index) => {
+          const up = bar.close >= bar.open;
+          const xx = x(index);
+          ctx.strokeStyle = up ? "rgba(210, 59, 59, 0.72)" : "rgba(17, 138, 85, 0.72)";
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.beginPath();
+          ctx.moveTo(xx, y(bar.low));
+          ctx.lineTo(xx, y(bar.high));
+          ctx.stroke();
+          const top = y(Math.max(bar.open, bar.close));
+          const bottom = y(Math.min(bar.open, bar.close));
+          ctx.fillRect(xx - 2, top, 4, Math.max(2, bottom - top));
+        });
+      }
+
+      function generateCoverBars() {
+        const bars = [];
+        let price = 90;
+        for (let i = 0; i < 70; i += 1) {
+          const open = price;
+          const close = open * (1 + Math.sin(i / 5) * 0.009 + (random(i + 9) - 0.5) * 0.05);
+          const high = Math.max(open, close) * (1 + random(i + 19) * 0.025);
+          const low = Math.min(open, close) * (1 - random(i + 29) * 0.025);
+          bars.push({ open, high, low, close });
+          price = close;
+        }
+        return bars;
+      }
+
+      function drawPriceChart() {
+        const canvas = el.priceCanvas;
+        const ctx = setupCanvas(canvas);
+        if (!ctx) return;
+        const rect = canvas.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height || 420;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, width, height);
+        if (!state.active || !state.active.bars.length) {
+          drawEmpty(ctx, width, height, "等待行情数据");
+          return;
+        }
+        const end = state.currentIndex;
+        const start = Math.max(0, end - MAX_CHART_BARS + 1);
+        const bars = state.active.bars.slice(start, end + 1);
+        const pad = { left: 56, right: 18, top: 20, bottom: 28 };
+        const volumeHeight = Math.max(70, height * 0.2);
+        const priceBottom = height - volumeHeight - 34;
+        const priceTop = pad.top;
+        const plotWidth = width - pad.left - pad.right;
+        const priceHeight = priceBottom - priceTop;
+        const values = [];
+        bars.forEach((bar) => {
+          values.push(bar.high, bar.low);
+          ["ma5", "ma20", "ma60"].forEach((key) => {
+            if (bar[key] != null) values.push(bar[key]);
+          });
+        });
+        const minPrice = Math.min(...values);
+        const maxPrice = Math.max(...values);
+        const range = Math.max(0.0001, maxPrice - minPrice);
+        const low = minPrice - range * 0.05;
+        const high = maxPrice + range * 0.05;
+        const maxVolume = Math.max(1, ...bars.map((bar) => bar.volume || 0));
+        const xStep = plotWidth / Math.max(1, bars.length);
+        const candleWidth = Math.max(3, Math.min(12, xStep * 0.58));
+        const x = (index) => pad.left + index * xStep + xStep / 2;
+        const y = (value) => priceBottom - ((value - low) / Math.max(0.0001, high - low)) * priceHeight;
+        const vy = (value) => height - pad.bottom - (value / maxVolume) * (volumeHeight - 12);
+
+        drawGrid(ctx, pad.left, priceTop, plotWidth, priceHeight, 5);
+        ctx.fillStyle = "#6b7585";
+        ctx.font = "12px Microsoft YaHei, Arial";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        for (let i = 0; i <= 5; i += 1) {
+          const value = high - (i / 5) * (high - low);
+          ctx.fillText(formatNumber(value, 2), pad.left - 7, y(value));
+        }
+
+        bars.forEach((bar, index) => {
+          const up = bar.close >= bar.open;
+          const xx = x(index);
+          const top = y(Math.max(bar.open, bar.close));
+          const bottom = y(Math.min(bar.open, bar.close));
+          ctx.strokeStyle = up ? "#d23b3b" : "#118a55";
+          ctx.fillStyle = up ? "rgba(210, 59, 59, 0.82)" : "rgba(17, 138, 85, 0.82)";
+          ctx.beginPath();
+          ctx.moveTo(xx, y(bar.low));
+          ctx.lineTo(xx, y(bar.high));
+          ctx.stroke();
+          ctx.fillRect(xx - candleWidth / 2, top, candleWidth, Math.max(1.5, bottom - top));
+          const volumeTop = vy(bar.volume || 0);
+          ctx.globalAlpha = 0.42;
+          ctx.fillRect(xx - candleWidth / 2, volumeTop, candleWidth, height - pad.bottom - volumeTop);
+          ctx.globalAlpha = 1;
+        });
+
+        drawLine(ctx, bars, "ma5", x, y, "#1769aa");
+        drawLine(ctx, bars, "ma20", x, y, "#b96b00");
+        drawLine(ctx, bars, "ma60", x, y, "#6f4bb6");
+
+        const currentX = x(bars.length - 1);
+        ctx.strokeStyle = "rgba(19, 34, 58, 0.36)";
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.moveTo(currentX, priceTop);
+        ctx.lineTo(currentX, height - pad.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = "#667085";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(formatShortDate(bars[0].t), pad.left, height - 8);
+        ctx.textAlign = "right";
+        ctx.fillText(formatShortDate(bars[bars.length - 1].t), width - pad.right, height - 8);
+      }
+
+      function drawEquityChart() {
+        const canvas = el.equityCanvas;
+        const ctx = setupCanvas(canvas);
+        if (!ctx) return;
+        const rect = canvas.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height || 222;
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, width, height);
+        if (!state.history.length) {
+          drawEmpty(ctx, width, height, "暂无资产曲线");
+          return;
+        }
+        const points = state.history.slice(-240);
+        const values = points.map((item) => item.equity);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const pad = { left: 48, right: 14, top: 16, bottom: 26 };
+        const range = Math.max(0.0001, max - min);
+        const low = min - range * 0.08;
+        const high = max + range * 0.08;
+        const x = (index) => pad.left + index * ((width - pad.left - pad.right) / Math.max(1, points.length - 1));
+        const y = (value) => height - pad.bottom - ((value - low) / Math.max(0.0001, high - low)) * (height - pad.top - pad.bottom);
+        drawGrid(ctx, pad.left, pad.top, width - pad.left - pad.right, height - pad.top - pad.bottom, 4);
+        ctx.strokeStyle = "#1769aa";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(x(index), y(point.equity));
+          else ctx.lineTo(x(index), y(point.equity));
+        });
+        ctx.stroke();
+        ctx.fillStyle = "#667085";
+        ctx.font = "12px Microsoft YaHei, Arial";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(formatNumber(high, 0), pad.left - 6, y(high));
+        ctx.fillText(formatNumber(low, 0), pad.left - 6, y(low));
+      }
+
+      function setupCanvas(canvas) {
+        if (!canvas) return null;
+        const rect = canvas.getBoundingClientRect();
+        const width = Math.max(1, rect.width);
+        const height = Math.max(1, rect.height || canvas.clientHeight || 220);
+        const dpr = window.devicePixelRatio || 1;
+        if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+          canvas.width = Math.floor(width * dpr);
+          canvas.height = Math.floor(height * dpr);
+        }
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return ctx;
+      }
+
+      function drawGrid(ctx, x, y, width, height, rows) {
+        ctx.strokeStyle = "#e6ebf2";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= rows; i += 1) {
+          const yy = y + (i / rows) * height;
+          ctx.beginPath();
+          ctx.moveTo(x, yy);
+          ctx.lineTo(x + width, yy);
+          ctx.stroke();
+        }
+      }
+
+      function drawLine(ctx, bars, key, x, y, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.7;
+        ctx.beginPath();
+        let started = false;
+        bars.forEach((bar, index) => {
+          if (bar[key] == null) return;
+          if (!started) {
+            ctx.moveTo(x(index), y(bar[key]));
+            started = true;
+          } else {
+            ctx.lineTo(x(index), y(bar[key]));
+          }
+        });
+        if (started) ctx.stroke();
+      }
+
+      function drawEmpty(ctx, width, height, text) {
+        ctx.fillStyle = "#667085";
+        ctx.font = "14px Microsoft YaHei, Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, width / 2, height / 2);
+      }
+
+      function findBarIndexAtOrBefore(bars, time) {
+        let lo = 0;
+        let hi = bars.length - 1;
+        let ans = 0;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (bars[mid].t <= time) {
+            ans = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+        return ans;
+      }
+
+      function findBarIndexAtOrAfter(bars, time) {
+        let lo = 0;
+        let hi = bars.length - 1;
+        let ans = bars.length - 1;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (bars[mid].t >= time) {
+            ans = mid;
+            hi = mid - 1;
+          } else {
+            lo = mid + 1;
+          }
+        }
+        return ans;
+      }
+
+      function unitMs(unit) {
+        const second = 1000;
+        const minute = 60 * second;
+        const hour = 60 * minute;
+        const day = 24 * hour;
+        const week = 7 * day;
+        return { second, minute, hour, day, week }[unit] || day;
+      }
+
+      function exportRepository() {
+        const payload = {
+          app: "炒股模拟器",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          datasets: state.datasets
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `炒股模拟器_数据仓库_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      async function importFiles(event) {
+        const files = Array.from(event.target.files || []);
+        if (!files.length) return;
+        let count = 0;
+        for (const file of files) {
+          try {
+            const text = await readFileText(file);
+            if (/\.json$/i.test(file.name) || text.trim().startsWith("{") || text.trim().startsWith("[")) {
+              const payload = JSON.parse(text);
+              const items = Array.isArray(payload) ? payload : payload.datasets ? payload.datasets : [payload];
+              for (const item of items) {
+                normalizeDataset(item);
+                await putDataset(item);
+                count += 1;
+              }
+            } else {
+              const dataset = parseCsvDataset(text, file.name);
+              await putDataset(dataset);
+              count += 1;
+            }
+          } catch (error) {
+            console.error(file.name, error);
+            setStatus(el.dataStatus, `${file.name} 导入失败：${friendlyError(error)}`, "error");
+          }
+        }
+        el.importFile.value = "";
+        await refreshRepository();
+        if (state.datasets.length) selectDataset(state.datasets[0].id);
+        setStatus(el.dataStatus, `导入完成：${count} 个数据集。`, "ok");
+      }
+
+      function readFileText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file, "utf-8");
+        });
+      }
+
+      function parseCsvDataset(text, fileName) {
+        const rows = text.trim().split(/\r?\n/).map(parseCsvLine).filter((row) => row.length);
+        if (rows.length < 2) throw new Error("CSV 至少需要表头和一行数据。");
+        const headers = rows[0].map((item) => item.trim().toLowerCase());
+        const indexOf = (...names) => {
+          for (const name of names) {
+            const index = headers.indexOf(name);
+            if (index >= 0) return index;
+          }
+          return -1;
+        };
+        const dateIndex = indexOf("date", "datetime", "time", "timestamp", "日期", "时间");
+        const openIndex = indexOf("open", "开盘");
+        const highIndex = indexOf("high", "最高");
+        const lowIndex = indexOf("low", "最低");
+        const closeIndex = indexOf("close", "收盘");
+        const volumeIndex = indexOf("volume", "vol", "成交量");
+        if ([dateIndex, openIndex, highIndex, lowIndex, closeIndex].some((index) => index < 0)) {
+          throw new Error("CSV 表头需要 date/open/high/low/close。");
+        }
+        const bars = rows.slice(1).map((row) => {
+          const rawTime = row[dateIndex];
+          const numericTime = Number(rawTime);
+          const time = Number.isFinite(numericTime) && numericTime > 1000000000
+            ? (numericTime < 100000000000 ? numericTime * 1000 : numericTime)
+            : Date.parse(rawTime);
+          return {
+            t: time,
+            open: Number(row[openIndex]),
+            high: Number(row[highIndex]),
+            low: Number(row[lowIndex]),
+            close: Number(row[closeIndex]),
+            adjClose: Number(row[closeIndex]),
+            volume: volumeIndex >= 0 ? Number(row[volumeIndex]) || 0 : 0
+          };
+        }).filter(isValidBar).sort((a, b) => a.t - b.t);
+        if (!bars.length) throw new Error("CSV 没有可用 K 线。");
+        const symbol = cleanSymbol(el.symbolInput.value) || cleanSymbol(fileName.replace(/\.[^.]+$/, "")) || "CSV";
+        const dataset = {
+          id: makeDatasetId(symbol, el.intervalSelect.value || "1d"),
+          symbol,
+          displayName: symbol,
+          interval: el.intervalSelect.value || "1d",
+          range: "import",
+          currency: guessCurrency(symbol),
+          exchange: "",
+          source: `CSV ${fileName}`,
+          updatedAt: Date.now(),
+          bars,
+          dividends: [],
+          splits: []
+        };
+        normalizeDataset(dataset);
+        return dataset;
+      }
+
+      function parseCsvLine(line) {
+        const out = [];
+        let cur = "";
+        let quoted = false;
+        for (let i = 0; i < line.length; i += 1) {
+          const ch = line[i];
+          if (ch === '"' && line[i + 1] === '"') {
+            cur += '"';
+            i += 1;
+          } else if (ch === '"') {
+            quoted = !quoted;
+          } else if (ch === "," && !quoted) {
+            out.push(cur);
+            cur = "";
+          } else {
+            cur += ch;
+          }
+        }
+        out.push(cur);
+        return out;
+      }
+
+      function makeDatasetId(symbol, interval) {
+        return `${cleanSymbol(symbol).toUpperCase()}__${interval || "1d"}`;
+      }
+
+      function cleanSymbol(value) {
+        return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
+      }
+
+      function guessCurrency(symbol) {
+        if (/\.SS$|\.SZ$|^SH|^SZ/i.test(symbol) || symbol === "DEMO") return "CNY";
+        if (/\.HK$/i.test(symbol)) return "HKD";
+        return "USD";
+      }
+
+      function formatDateRange(dataset) {
+        if (!dataset || !dataset.bars || !dataset.bars.length) return "--";
+        return `${formatShortDate(dataset.bars[0].t)} 至 ${formatShortDate(dataset.bars[dataset.bars.length - 1].t)}`;
+      }
+
+      function formatDateTime(time) {
+        return new Intl.DateTimeFormat("zh-CN", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        }).format(new Date(time));
+      }
+
+      function formatShortDate(time) {
+        return new Intl.DateTimeFormat("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        }).format(new Date(time));
+      }
+
+      function toInputDateTime(time) {
+        const date = new Date(time);
+        const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+        return shifted.toISOString().slice(0, 16);
+      }
+
+      function fromInputDateTime(value) {
+        return new Date(value).getTime();
+      }
+
+      function formatMoney(value, currency) {
+        const prefix = CURRENCY_SYMBOLS[currency || (state.active && state.active.currency)] || "";
+        return `${prefix}${formatNumber(value, Math.abs(value) >= 1000 ? 2 : 4)}`;
+      }
+
+      function formatPrice(value) {
+        return formatMoney(value, state.active && state.active.currency);
+      }
+
+      function formatNumber(value, digits = 2) {
+        if (!Number.isFinite(Number(value))) return "--";
+        return Number(value).toLocaleString("zh-CN", {
+          minimumFractionDigits: digits,
+          maximumFractionDigits: digits
+        });
+      }
+
+      function formatQuantity(value) {
+        return Number(value || 0).toLocaleString("zh-CN", {
+          maximumFractionDigits: 6
+        });
+      }
+
+      function fmtIndicator(value) {
+        return value == null || !Number.isFinite(value) ? "--" : formatNumber(value, 2);
+      }
+
+      function compactNumber(value) {
+        return Number(value || 0).toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
+      }
+
+      function setStatus(node, message, type) {
+        node.textContent = message;
+        node.className = `status ${type || ""}`;
+      }
+
+      function friendlyError(error) {
+        const message = error && error.message ? error.message : String(error);
+        if (/所有行情源都无法连接|Failed to fetch|NetworkError|Load failed|abort/i.test(message)) {
+          return "浏览器直连行情源被限制。请先双击同目录的“启动炒股模拟器.bat”，再在打开的页面里下载；也可以导入仓库 JSON/CSV。";
+        }
+        return message;
+      }
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function debounce(fn, wait) {
+        let timer = 0;
+        return (...args) => {
+          clearTimeout(timer);
+          timer = setTimeout(() => fn(...args), wait);
+        };
+      }
+    })();
+  </script>
+</body>
+</html>

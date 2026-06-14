@@ -444,6 +444,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 10px;
       padding: 10px 12px;
       border: 1px solid var(--line);
@@ -481,6 +482,20 @@
       background: #fff;
     }
 
+    .chart-tools {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .chart-tools button {
+      min-height: 28px;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+
     .canvas-wrap {
       height: clamp(380px, 54vh, 620px);
       min-height: 380px;
@@ -500,12 +515,75 @@
     #priceCanvas {
       height: 100%;
       min-height: 0;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+    }
+
+    #priceCanvas.dragging {
+      cursor: grabbing;
     }
 
     .lower-grid {
       display: grid;
       grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 0.9fr);
       gap: 12px;
+    }
+
+    .advisor-panel {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.75fr) minmax(0, 1.25fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .advisor-summary {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .advisor-state {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .advisor-state.strong { color: var(--red); }
+    .advisor-state.weak { color: var(--green); }
+    .advisor-state.watch { color: var(--amber); }
+    .advisor-state.neutral { color: var(--muted); }
+
+    .advisor-text {
+      color: #344054;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .advisor-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .advisor-table-wrap {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: auto;
+      background: #fff;
+    }
+
+    .advisor-table th,
+    .advisor-table td {
+      white-space: nowrap;
+    }
+
+    .advisor-table td:last-child {
+      color: var(--muted);
     }
 
     .trade-grid {
@@ -606,6 +684,10 @@
       }
 
       .lower-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .advisor-panel {
         grid-template-columns: 1fr;
       }
     }
@@ -832,14 +914,54 @@
               </div>
               <div class="indicator-strip">
                 <span class="pill" id="ma5Pill">MA5 --</span>
+                <span class="pill" id="ma10Pill">MA10 --</span>
                 <span class="pill" id="ma20Pill">MA20 --</span>
                 <span class="pill" id="ma60Pill">MA60 --</span>
                 <span class="pill" id="rsiPill">RSI --</span>
                 <span class="pill" id="macdPill">MACD --</span>
               </div>
+              <div class="chart-tools">
+                <span class="pill" id="chartRangePill">显示 --</span>
+                <button data-chart-range="30" type="button">30K</button>
+                <button data-chart-range="60" type="button">60K</button>
+                <button data-chart-range="120" type="button">120K</button>
+                <button data-chart-range="240" type="button">240K</button>
+                <button data-chart-range="all" type="button">全部</button>
+                <button id="chartLatestBtn" type="button">最新</button>
+              </div>
             </div>
             <div class="canvas-wrap">
               <canvas id="priceCanvas"></canvas>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h3>辅助判断器</h3>
+              <span class="pill" id="advisorCyclePill">均线系统</span>
+            </div>
+            <div class="panel-body">
+              <div class="advisor-panel">
+                <div class="advisor-summary">
+                  <div id="advisorState" class="advisor-state neutral">等待数据</div>
+                  <div id="advisorText" class="advisor-text">载入数据后会根据价格、MA5、MA10、MA20、MA60 的相对位置、方向和缠绕程度进行分类。</div>
+                  <div id="advisorTags" class="advisor-tags"></div>
+                </div>
+                <div class="advisor-table-wrap">
+                  <table class="advisor-table">
+                    <thead>
+                      <tr>
+                        <th>指标</th>
+                        <th>数值</th>
+                        <th>方向</th>
+                        <th>价格距离</th>
+                        <th>含义</th>
+                      </tr>
+                    </thead>
+                    <tbody id="advisorTable"></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -928,7 +1050,14 @@
         account: null,
         history: [],
         ledger: [],
-        processedEvents: new Set()
+        processedEvents: new Set(),
+        chart: {
+          visibleBars: 120,
+          offset: 0,
+          dragging: false,
+          dragStartX: 0,
+          dragStartOffset: 0
+        }
       };
 
       const el = {};
@@ -940,7 +1069,8 @@
         "initialCashInput", "marketSelect", "commissionInput", "minFeeInput", "stampInput",
         "slippageInput", "resetSimBtn", "clearLedgerBtn", "simStatus", "statTime", "statPrice",
         "statCash", "statQty", "statPosition", "statEquity", "statRealized", "statUnrealized",
-        "chartTitle", "chartSubTitle", "ma5Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
+        "chartTitle", "chartSubTitle", "ma5Pill", "ma10Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
+        "chartRangePill", "chartLatestBtn", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
         "priceCanvas", "barIndexPill", "qtyInput", "customAmountInput", "customUnitSelect",
         "buyBtn", "sellBtn", "holdBtn", "maxBuyBtn", "customForwardBtn", "toEndBtn",
         "tradeStatus", "equityCanvas", "returnPill", "ledger", "storageMode"
@@ -1015,6 +1145,14 @@
           forwardTime(Number(el.customAmountInput.value || 1), el.customUnitSelect.value);
         });
         el.toEndBtn.addEventListener("click", () => forwardToIndex(getBars().length - 1));
+        document.querySelectorAll("[data-chart-range]").forEach((button) => {
+          button.addEventListener("click", () => setChartRange(button.dataset.chartRange));
+        });
+        el.chartLatestBtn.addEventListener("click", () => {
+          state.chart.offset = 0;
+          renderCharts();
+        });
+        setupChartInteractions();
       }
 
       function enterApp(loadDemoIfEmpty) {
@@ -1330,6 +1468,7 @@
 
       function computeIndicators(bars) {
         addSma(bars, 5, "ma5");
+        addSma(bars, 10, "ma10");
         addSma(bars, 20, "ma20");
         addSma(bars, 60, "ma60");
         addRsi(bars, 14);
@@ -1610,6 +1749,7 @@
         state.history = [];
         state.ledger = [];
         state.processedEvents = new Set();
+        state.chart.offset = 0;
         recordHistory();
         pushLedger("开始", `${state.active.symbol} 从 ${formatDateTime(currentBar().t)} 开始，现金 ${formatMoney(initialCash)}。`);
         setStatus(el.simStatus, "模拟已开始。", "ok");
@@ -1796,6 +1936,7 @@
       function renderAll() {
         renderStats();
         renderIndicators();
+        renderAdvisor();
         renderLedger();
         renderCharts();
       }
@@ -1848,6 +1989,7 @@
         const bar = currentBar();
         if (!bar) {
           el.ma5Pill.textContent = "MA5 --";
+          el.ma10Pill.textContent = "MA10 --";
           el.ma20Pill.textContent = "MA20 --";
           el.ma60Pill.textContent = "MA60 --";
           el.rsiPill.textContent = "RSI --";
@@ -1855,10 +1997,221 @@
           return;
         }
         el.ma5Pill.textContent = `MA5 ${fmtIndicator(bar.ma5)}`;
+        el.ma10Pill.textContent = `MA10 ${fmtIndicator(bar.ma10)}`;
         el.ma20Pill.textContent = `MA20 ${fmtIndicator(bar.ma20)}`;
         el.ma60Pill.textContent = `MA60 ${fmtIndicator(bar.ma60)}`;
         el.rsiPill.textContent = `RSI ${fmtIndicator(bar.rsi14)}`;
         el.macdPill.textContent = `MACD ${fmtIndicator(bar.macd)}`;
+      }
+
+      function renderAdvisor() {
+        const bar = currentBar();
+        const bars = getBars();
+        if (!bar || !bars.length) {
+          el.advisorState.textContent = "等待数据";
+          el.advisorState.className = "advisor-state neutral";
+          el.advisorText.textContent = "载入数据后会根据价格、MA5、MA10、MA20、MA60 的相对位置、方向和缠绕程度进行分类。";
+          el.advisorTags.innerHTML = "";
+          el.advisorTable.innerHTML = '<tr><td colspan="5">暂无均线数据</td></tr>';
+          el.advisorCyclePill.textContent = "均线系统";
+          return;
+        }
+
+        const analysis = analyzeMovingAverages(bars, state.currentIndex);
+        el.advisorState.textContent = analysis.state;
+        el.advisorState.className = `advisor-state ${analysis.tone}`;
+        el.advisorText.textContent = analysis.text;
+        el.advisorCyclePill.textContent = analysis.cycle;
+        el.advisorTags.innerHTML = analysis.tags
+          .map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`)
+          .join("");
+        el.advisorTable.innerHTML = analysis.rows
+          .map((row) => `
+            <tr>
+              <td>${escapeHtml(row.label)}</td>
+              <td>${row.value}</td>
+              <td>${escapeHtml(row.direction)}</td>
+              <td>${row.distance}</td>
+              <td>${escapeHtml(row.meaning)}</td>
+            </tr>
+          `)
+          .join("");
+      }
+
+      function analyzeMovingAverages(bars, index) {
+        const bar = bars[index];
+        const price = bar.close;
+        const maItems = [
+          { key: "ma5", label: "MA5", period: 5, meaning: "短线平均成本" },
+          { key: "ma10", label: "MA10", period: 10, meaning: "短中线平均成本" },
+          { key: "ma20", label: "MA20", period: 20, meaning: "中期平均成本" },
+          { key: "ma60", label: "MA60", period: 60, meaning: "长期平均成本" }
+        ];
+        const rows = maItems.map((item) => makeMaRow(bars, index, item, price));
+        const values = Object.fromEntries(maItems.map((item) => [item.key, bar[item.key]]));
+        const ready = maItems.every((item) => Number.isFinite(values[item.key]));
+        const available = maItems.filter((item) => Number.isFinite(values[item.key]));
+        if (!ready) {
+          const enough = available.map((item) => item.label).join("、") || "暂无";
+          return {
+            state: "数据积累中",
+            tone: "neutral",
+            text: `当前 K 线数量还不足以完整计算 MA60。已可参考：${enough}。`,
+            cycle: `${index + 1} / ${bars.length}`,
+            tags: ["样本不足", `价格 ${formatPrice(price)}`],
+            rows
+          };
+        }
+
+        const slope = {
+          ma5: maSlope(bars, index, "ma5", 3),
+          ma10: maSlope(bars, index, "ma10", 4),
+          ma20: maSlope(bars, index, "ma20", 6),
+          ma60: maSlope(bars, index, "ma60", 10)
+        };
+        const upSlopes = Object.values(slope).filter((value) => value > 0.001).length;
+        const downSlopes = Object.values(slope).filter((value) => value < -0.001).length;
+        const bullishOrder = values.ma5 > values.ma10 && values.ma10 > values.ma20 && values.ma20 > values.ma60;
+        const bearishOrder = values.ma5 < values.ma10 && values.ma10 < values.ma20 && values.ma20 < values.ma60;
+        const priceAboveAll = maItems.every((item) => price > values[item.key]);
+        const priceBelowAll = maItems.every((item) => price < values[item.key]);
+        const priceVsMa20 = percentDistance(price, values.ma20);
+        const shortLongSpread = Math.abs(values.ma5 - values.ma20) / Math.max(0.0001, price);
+        const clusterSpread = (Math.max(values.ma5, values.ma10, values.ma20) - Math.min(values.ma5, values.ma10, values.ma20)) / Math.max(0.0001, price);
+        const cross520 = countCrosses(bars, index, "ma5", "ma20", 22);
+        const cross1020 = countCrosses(bars, index, "ma10", "ma20", 22);
+        const wet = cross520 >= 2 || cross1020 >= 2 || clusterSpread < 0.012;
+        const lip = !wet && shortLongSpread < 0.018;
+        const fly = !wet && !lip && shortLongSpread >= 0.04;
+        const prior20 = bars[Math.max(0, index - 20)];
+        const prior60 = bars[Math.max(0, index - 60)];
+        const recentReturn20 = prior20 ? price / prior20.close - 1 : 0;
+        const recentReturn60 = prior60 ? price / prior60.close - 1 : 0;
+        const longDown = recentReturn60 < -0.08 || slope.ma60 < -0.002;
+        const longUp = recentReturn60 > 0.08 || slope.ma60 > 0.002;
+
+        let stateLabel = "震荡观察";
+        let tone = "neutral";
+        let text = "均线没有形成清晰排列，当前更适合作为震荡或等待确认处理。";
+
+        if (bullishOrder && priceAboveAll && upSlopes >= 3) {
+          stateLabel = "强势上涨";
+          tone = "strong";
+          text = fly
+            ? "价格和短中长期均线都处于多头排列，且短期均线明显高于中期均线，属于强趋势中的浅调整或延续。"
+            : "价格站在 MA5、MA10、MA20、MA60 上方，均线多头排列，短中长期同向偏强。";
+        } else if (bearishOrder && priceBelowAll && downSlopes >= 3) {
+          stateLabel = "弱势下跌";
+          tone = "weak";
+          text = fly
+            ? "价格和均线都处于空头排列，短期均线明显低于中期均线，反弹力度暂时不足。"
+            : "价格跌在 MA5、MA10、MA20、MA60 下方，均线空头排列，短中长期同向偏弱。";
+        } else if (wet) {
+          if (longDown && price > values.ma20 && values.ma5 > values.ma10) {
+            stateLabel = "可能转强";
+            tone = "watch";
+            text = "长期弱势后，MA5、MA10、MA20 出现缠绕并开始向上突破，属于由弱转强的观察区。";
+          } else if (longUp && price < values.ma20 && values.ma5 < values.ma10) {
+            stateLabel = "可能转弱";
+            tone = "watch";
+            text = "长期强势后，短中期均线缠绕且价格跌回 MA20 下方，原上升结构开始不稳定。";
+          } else {
+            stateLabel = "震荡缠绕";
+            tone = "neutral";
+            text = "MA5、MA10、MA20 距离很近或反复交叉，市场处于方向选择前的震荡状态，假突破概率较高。";
+          }
+        } else if (lip && values.ma20 > values.ma60 && price >= values.ma20 && slope.ma20 >= -0.001) {
+          stateLabel = "上升趋势回踩";
+          tone = "strong";
+          text = "短期均线靠近中期均线但没有明显破坏 MA20，属于上涨趋势中的正常回调观察。";
+        } else if (lip && values.ma20 < values.ma60 && price <= values.ma20 && slope.ma20 <= 0.001) {
+          stateLabel = "下降趋势反抽";
+          tone = "weak";
+          text = "短期均线靠近中期均线但没有有效突破，属于下跌趋势中的反弹受阻观察。";
+        } else if (price > values.ma5 && price < values.ma20 && price < values.ma60) {
+          stateLabel = "弱势中的短线反弹";
+          tone = "watch";
+          text = "价格短线站上 MA5，但仍在 MA20、MA60 下方，短线有反弹，中期和长期尚未转强。";
+        } else if (price < values.ma5 && price > values.ma20 && price > values.ma60) {
+          stateLabel = "强势中的短线调整";
+          tone = "watch";
+          text = "价格短线跌破 MA5，但仍在 MA20、MA60 上方，中长期结构尚可，短线进入调整。";
+        }
+
+        const kiss = wet ? "湿吻/缠绕" : lip ? "唇吻/靠近" : fly ? "飞吻/远离" : "普通距离";
+        const order = bullishOrder ? "多头排列" : bearishOrder ? "空头排列" : "混合排列";
+        const pricePosition = priceAboveAll ? "价格在全部均线上方" : priceBelowAll ? "价格在全部均线下方" : `价格相对 MA20 ${priceVsMa20 >= 0 ? "偏强" : "偏弱"}`;
+        return {
+          state: stateLabel,
+          tone,
+          text,
+          cycle: `${state.active ? state.active.interval : "周期"} · ${formatShortDate(bar.t)}`,
+          tags: [
+            order,
+            kiss,
+            pricePosition,
+            `MA20距离 ${formatPercent(priceVsMa20)}`
+          ],
+          rows
+        };
+      }
+
+      function makeMaRow(bars, index, item, price) {
+        const value = bars[index][item.key];
+        if (!Number.isFinite(value)) {
+          return {
+            label: item.label,
+            value: "--",
+            direction: "样本不足",
+            distance: "--",
+            meaning: item.meaning
+          };
+        }
+        const slope = maSlope(bars, index, item.key, Math.min(item.period, 10));
+        const direction = slope > 0.001 ? "向上" : slope < -0.001 ? "向下" : "走平";
+        const distance = percentDistance(price, value);
+        const strength = distance > 0 ? "价格在其上方" : distance < 0 ? "价格在其下方" : "价格贴近";
+        return {
+          label: item.label,
+          value: formatPrice(value),
+          direction,
+          distance: formatPercent(distance),
+          meaning: `${item.meaning}，${strength}`
+        };
+      }
+
+      function maSlope(bars, index, key, lookback) {
+        const now = bars[index] && bars[index][key];
+        const prevIndex = Math.max(0, index - lookback);
+        const prev = bars[prevIndex] && bars[prevIndex][key];
+        if (!Number.isFinite(now) || !Number.isFinite(prev) || prev === 0) return 0;
+        return now / prev - 1;
+      }
+
+      function percentDistance(value, base) {
+        if (!Number.isFinite(value) || !Number.isFinite(base) || base === 0) return 0;
+        return (value / base - 1) * 100;
+      }
+
+      function formatPercent(value) {
+        const sign = value > 0 ? "+" : "";
+        return `${sign}${formatNumber(value, 2)}%`;
+      }
+
+      function countCrosses(bars, index, keyA, keyB, lookback) {
+        const start = Math.max(1, index - lookback + 1);
+        let crosses = 0;
+        let previousSide = null;
+        for (let i = start; i <= index; i += 1) {
+          const a = bars[i][keyA];
+          const b = bars[i][keyB];
+          if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+          const side = a > b ? 1 : a < b ? -1 : 0;
+          if (side === 0) continue;
+          if (previousSide != null && side !== previousSide) crosses += 1;
+          previousSide = side;
+        }
+        return crosses;
       }
 
       function renderLedger() {
@@ -1886,6 +2239,105 @@
       function renderCharts() {
         drawPriceChart();
         drawEquityChart();
+      }
+
+      function setupChartInteractions() {
+        const canvas = el.priceCanvas;
+        canvas.addEventListener("wheel", (event) => {
+          if (!state.active || !state.active.bars.length) return;
+          event.preventDefault();
+          const rect = canvas.getBoundingClientRect();
+          const pad = { left: 56, right: 18 };
+          const plotWidth = Math.max(1, rect.width - pad.left - pad.right);
+          const fraction = clamp((event.clientX - rect.left - pad.left) / plotWidth, 0, 1);
+          const currentWindow = getChartWindow();
+          const anchorIndex = currentWindow.start + Math.round(fraction * Math.max(0, currentWindow.bars.length - 1));
+          const factor = event.deltaY < 0 ? 0.82 : 1.22;
+          const maxVisible = Math.max(1, state.currentIndex + 1);
+          const nextVisible = clamp(Math.round(currentWindow.visibleBars * factor), 20, maxVisible);
+          const nextStart = Math.round(anchorIndex - fraction * Math.max(0, nextVisible - 1));
+          const nextEnd = nextStart + nextVisible - 1;
+          state.chart.visibleBars = nextVisible;
+          state.chart.offset = state.currentIndex - nextEnd;
+          clampChartView();
+          renderCharts();
+        }, { passive: false });
+
+        canvas.addEventListener("pointerdown", (event) => {
+          if (!state.active || !state.active.bars.length) return;
+          state.chart.dragging = true;
+          state.chart.dragStartX = event.clientX;
+          state.chart.dragStartOffset = state.chart.offset;
+          canvas.classList.add("dragging");
+          canvas.setPointerCapture(event.pointerId);
+        });
+
+        canvas.addEventListener("pointermove", (event) => {
+          if (!state.chart.dragging) return;
+          const rect = canvas.getBoundingClientRect();
+          const win = getChartWindow();
+          const barWidth = Math.max(1, (rect.width - 74) / Math.max(1, win.visibleBars));
+          const deltaBars = Math.round((event.clientX - state.chart.dragStartX) / barWidth);
+          state.chart.offset = state.chart.dragStartOffset + deltaBars;
+          clampChartView();
+          renderCharts();
+        });
+
+        const endDrag = (event) => {
+          if (!state.chart.dragging) return;
+          state.chart.dragging = false;
+          canvas.classList.remove("dragging");
+          if (event && canvas.hasPointerCapture(event.pointerId)) {
+            canvas.releasePointerCapture(event.pointerId);
+          }
+        };
+        canvas.addEventListener("pointerup", endDrag);
+        canvas.addEventListener("pointercancel", endDrag);
+        canvas.addEventListener("lostpointercapture", endDrag);
+      }
+
+      function setChartRange(value) {
+        const bars = getBars();
+        if (!bars.length) return;
+        if (value === "all") {
+          state.chart.visibleBars = Math.max(20, state.currentIndex + 1);
+        } else {
+          state.chart.visibleBars = Math.max(20, Number(value) || 120);
+        }
+        state.chart.offset = 0;
+        clampChartView();
+        renderCharts();
+      }
+
+      function getChartWindow() {
+        const allBars = getBars();
+        if (!allBars.length) {
+          return { start: 0, end: 0, bars: [], visibleBars: state.chart.visibleBars };
+        }
+        const latestIndex = clamp(state.currentIndex, 0, allBars.length - 1);
+        const maxVisible = latestIndex + 1;
+        const visibleBars = clamp(Math.round(state.chart.visibleBars || 120), Math.min(20, maxVisible), maxVisible);
+        const maxOffset = Math.max(0, latestIndex - visibleBars + 1);
+        const offset = clamp(Math.round(state.chart.offset || 0), 0, maxOffset);
+        state.chart.visibleBars = visibleBars;
+        state.chart.offset = offset;
+        const end = latestIndex - offset;
+        const start = Math.max(0, end - visibleBars + 1);
+        return {
+          start,
+          end,
+          bars: allBars.slice(start, end + 1),
+          visibleBars: end - start + 1
+        };
+      }
+
+      function clampChartView() {
+        getChartWindow();
+      }
+
+      function clamp(value, min, max) {
+        if (max < min) return min;
+        return Math.min(max, Math.max(min, value));
       }
 
       function drawCover() {
@@ -1953,9 +2405,13 @@
           drawEmpty(ctx, width, height, "等待行情数据");
           return;
         }
-        const end = state.currentIndex;
-        const start = Math.max(0, end - MAX_CHART_BARS + 1);
-        const bars = state.active.bars.slice(start, end + 1);
+        const view = getChartWindow();
+        const bars = view.bars;
+        if (!bars.length) {
+          drawEmpty(ctx, width, height, "等待行情数据");
+          return;
+        }
+        el.chartRangePill.textContent = `显示 ${view.start + 1}-${view.end + 1} / ${state.currentIndex + 1}`;
         const pad = { left: 56, right: 18, top: 20, bottom: 28 };
         const volumeHeight = Math.max(70, height * 0.2);
         const priceBottom = height - volumeHeight - 34;
@@ -1965,7 +2421,7 @@
         const values = [];
         bars.forEach((bar) => {
           values.push(bar.high, bar.low);
-          ["ma5", "ma20", "ma60"].forEach((key) => {
+          ["ma5", "ma10", "ma20", "ma60"].forEach((key) => {
             if (bar[key] != null) values.push(bar[key]);
           });
         });
@@ -2010,17 +2466,21 @@
         });
 
         drawLine(ctx, bars, "ma5", x, y, "#1769aa");
+        drawLine(ctx, bars, "ma10", x, y, "#0f8a75");
         drawLine(ctx, bars, "ma20", x, y, "#b96b00");
         drawLine(ctx, bars, "ma60", x, y, "#6f4bb6");
 
-        const currentX = x(bars.length - 1);
-        ctx.strokeStyle = "rgba(19, 34, 58, 0.36)";
-        ctx.setLineDash([4, 5]);
-        ctx.beginPath();
-        ctx.moveTo(currentX, priceTop);
-        ctx.lineTo(currentX, height - pad.bottom);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const currentLocalIndex = state.currentIndex - view.start;
+        if (currentLocalIndex >= 0 && currentLocalIndex < bars.length) {
+          const currentX = x(currentLocalIndex);
+          ctx.strokeStyle = "rgba(19, 34, 58, 0.36)";
+          ctx.setLineDash([4, 5]);
+          ctx.beginPath();
+          ctx.moveTo(currentX, priceTop);
+          ctx.lineTo(currentX, height - pad.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
 
         ctx.fillStyle = "#667085";
         ctx.textAlign = "left";

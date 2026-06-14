@@ -1051,6 +1051,8 @@
         history: [],
         ledger: [],
         processedEvents: new Set(),
+        fileStore: false,
+        fileStoreDir: "",
         chart: {
           visibleBars: 120,
           offset: 0,
@@ -1186,23 +1188,42 @@
         });
       }
 
-      function getAllDatasets() {
-        if (!state.db) return Promise.resolve(state.datasets);
+      async function getAllDatasets() {
+        const serverResult = await loadDatasetsFromFileStore();
+        if (serverResult) {
+          state.fileStore = true;
+          state.fileStoreDir = serverResult.dataDir || "";
+          el.storageMode.textContent = "文件仓库";
+          serverResult.datasets.forEach(normalizeDataset);
+          return serverResult.datasets.sort(compareDataset);
+        }
+        state.fileStore = false;
+        el.storageMode.textContent = state.db ? "IndexedDB" : "内存模式";
+        if (!state.db) return state.datasets;
         return new Promise((resolve, reject) => {
           const tx = state.db.transaction(STORE_NAME, "readonly");
           const store = tx.objectStore(STORE_NAME);
           const request = store.getAll();
-          request.onsuccess = () => resolve((request.result || []).sort(compareDataset));
+          request.onsuccess = () => {
+            const datasets = request.result || [];
+            datasets.forEach(normalizeDataset);
+            resolve(datasets.sort(compareDataset));
+          };
           request.onerror = () => reject(request.error);
         });
       }
 
-      function putDataset(dataset) {
+      async function putDataset(dataset) {
+        if (await saveDatasetToFileStore(dataset)) {
+          state.fileStore = true;
+          el.storageMode.textContent = "文件仓库";
+          return;
+        }
         if (!state.db) {
           const index = state.datasets.findIndex((item) => item.id === dataset.id);
           if (index >= 0) state.datasets[index] = dataset;
           else state.datasets.push(dataset);
-          return Promise.resolve();
+          return;
         }
         return new Promise((resolve, reject) => {
           const tx = state.db.transaction(STORE_NAME, "readwrite");
@@ -1212,10 +1233,15 @@
         });
       }
 
-      function deleteDatasetById(id) {
+      async function deleteDatasetById(id) {
+        if (await deleteDatasetFromFileStore(id)) {
+          state.fileStore = true;
+          el.storageMode.textContent = "文件仓库";
+          return;
+        }
         if (!state.db) {
           state.datasets = state.datasets.filter((item) => item.id !== id);
-          return Promise.resolve();
+          return;
         }
         return new Promise((resolve, reject) => {
           const tx = state.db.transaction(STORE_NAME, "readwrite");
@@ -1223,6 +1249,46 @@
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         });
+      }
+
+      async function loadDatasetsFromFileStore() {
+        try {
+          const response = await fetchWithTimeout(buildHelperApiUrl("datasets"), { mode: "cors" }, 1200);
+          if (!response.ok) return null;
+          const payload = await response.json();
+          return {
+            datasets: Array.isArray(payload.datasets) ? payload.datasets : [],
+            dataDir: payload.dataDir || ""
+          };
+        } catch (error) {
+          return null;
+        }
+      }
+
+      async function saveDatasetToFileStore(dataset) {
+        try {
+          const response = await fetchWithTimeout(buildHelperApiUrl("dataset"), {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(dataset)
+          }, 8000);
+          return response.ok;
+        } catch (error) {
+          return false;
+        }
+      }
+
+      async function deleteDatasetFromFileStore(id) {
+        try {
+          const response = await fetchWithTimeout(buildHelperApiUrl("dataset", { id }), {
+            method: "DELETE",
+            mode: "cors"
+          }, 3000);
+          return response.ok;
+        } catch (error) {
+          return false;
+        }
       }
 
       async function saveDataset(dataset) {
@@ -1400,11 +1466,12 @@
       }
 
       function buildHelperApiUrl(endpoint, params) {
-        const query = new URLSearchParams(params).toString();
+        const query = new URLSearchParams(params || {}).toString();
+        const suffix = query ? `?${query}` : "";
         if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname)) {
-          return `/api/${endpoint}?${query}`;
+          return `/api/${endpoint}${suffix}`;
         }
-        return `http://127.0.0.1:8765/api/${endpoint}?${query}`;
+        return `http://127.0.0.1:8765/api/${endpoint}${suffix}`;
       }
 
       async function fetchWithTimeout(url, options, timeoutMs) {
@@ -2080,9 +2147,9 @@
         const clusterSpread = (Math.max(values.ma5, values.ma10, values.ma20) - Math.min(values.ma5, values.ma10, values.ma20)) / Math.max(0.0001, price);
         const cross520 = countCrosses(bars, index, "ma5", "ma20", 22);
         const cross1020 = countCrosses(bars, index, "ma10", "ma20", 22);
-        const wet = cross520 >= 2 || cross1020 >= 2 || clusterSpread < 0.012;
-        const lip = !wet && shortLongSpread < 0.018;
-        const fly = !wet && !lip && shortLongSpread >= 0.04;
+        const intertwined = cross520 >= 2 || cross1020 >= 2 || clusterSpread < 0.012;
+        const nearTouch = !intertwined && shortLongSpread < 0.018;
+        const farApart = !intertwined && !nearTouch && shortLongSpread >= 0.04;
         const prior20 = bars[Math.max(0, index - 20)];
         const prior60 = bars[Math.max(0, index - 60)];
         const recentReturn20 = prior20 ? price / prior20.close - 1 : 0;
@@ -2097,16 +2164,16 @@
         if (bullishOrder && priceAboveAll && upSlopes >= 3) {
           stateLabel = "强势上涨";
           tone = "strong";
-          text = fly
+          text = farApart
             ? "价格和短中长期均线都处于多头排列，且短期均线明显高于中期均线，属于强趋势中的浅调整或延续。"
             : "价格站在 MA5、MA10、MA20、MA60 上方，均线多头排列，短中长期同向偏强。";
         } else if (bearishOrder && priceBelowAll && downSlopes >= 3) {
           stateLabel = "弱势下跌";
           tone = "weak";
-          text = fly
+          text = farApart
             ? "价格和均线都处于空头排列，短期均线明显低于中期均线，反弹力度暂时不足。"
             : "价格跌在 MA5、MA10、MA20、MA60 下方，均线空头排列，短中长期同向偏弱。";
-        } else if (wet) {
+        } else if (intertwined) {
           if (longDown && price > values.ma20 && values.ma5 > values.ma10) {
             stateLabel = "可能转强";
             tone = "watch";
@@ -2120,11 +2187,11 @@
             tone = "neutral";
             text = "MA5、MA10、MA20 距离很近或反复交叉，市场处于方向选择前的震荡状态，假突破概率较高。";
           }
-        } else if (lip && values.ma20 > values.ma60 && price >= values.ma20 && slope.ma20 >= -0.001) {
+        } else if (nearTouch && values.ma20 > values.ma60 && price >= values.ma20 && slope.ma20 >= -0.001) {
           stateLabel = "上升趋势回踩";
           tone = "strong";
           text = "短期均线靠近中期均线但没有明显破坏 MA20，属于上涨趋势中的正常回调观察。";
-        } else if (lip && values.ma20 < values.ma60 && price <= values.ma20 && slope.ma20 <= 0.001) {
+        } else if (nearTouch && values.ma20 < values.ma60 && price <= values.ma20 && slope.ma20 <= 0.001) {
           stateLabel = "下降趋势反抽";
           tone = "weak";
           text = "短期均线靠近中期均线但没有有效突破，属于下跌趋势中的反弹受阻观察。";
@@ -2138,7 +2205,7 @@
           text = "价格短线跌破 MA5，但仍在 MA20、MA60 上方，中长期结构尚可，短线进入调整。";
         }
 
-        const kiss = wet ? "湿吻/缠绕" : lip ? "唇吻/靠近" : fly ? "飞吻/远离" : "普通距离";
+        const relation = intertwined ? "交叉缠绕" : nearTouch ? "靠近未破" : farApart ? "明显远离" : "普通距离";
         const order = bullishOrder ? "多头排列" : bearishOrder ? "空头排列" : "混合排列";
         const pricePosition = priceAboveAll ? "价格在全部均线上方" : priceBelowAll ? "价格在全部均线下方" : `价格相对 MA20 ${priceVsMa20 >= 0 ? "偏强" : "偏弱"}`;
         return {
@@ -2148,7 +2215,7 @@
           cycle: `${state.active ? state.active.interval : "周期"} · ${formatShortDate(bar.t)}`,
           tags: [
             order,
-            kiss,
+            relation,
             pricePosition,
             `MA20距离 ${formatPercent(priceVsMa20)}`
           ],

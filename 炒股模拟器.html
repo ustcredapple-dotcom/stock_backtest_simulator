@@ -19,6 +19,10 @@
       --red: #d23b3b;
       --green: #118a55;
       --amber: #b96b00;
+      --ma5: #d9901f;
+      --ma10: #2f86d2;
+      --ma20: #c65bb8;
+      --ma60: #6f4bb6;
       --shadow: 0 18px 38px rgba(18, 32, 56, 0.09);
       --radius: 8px;
       font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
@@ -198,6 +202,44 @@
       color: var(--muted);
       font-size: 12px;
       white-space: nowrap;
+    }
+
+    .ma-pill {
+      background: #fff;
+      font-weight: 700;
+    }
+
+    .ma-pill::before {
+      content: "";
+      width: 18px;
+      height: 3px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+    }
+
+    .ma-pill.ma5 {
+      color: var(--ma5);
+      border-color: #e8c37f;
+      background: #fff8ea;
+    }
+
+    .ma-pill.ma10 {
+      color: var(--ma10);
+      border-color: #9bc5ee;
+      background: #edf6ff;
+    }
+
+    .ma-pill.ma20 {
+      color: var(--ma20);
+      border-color: #e3a6da;
+      background: #fff1fc;
+    }
+
+    .ma-pill.ma60 {
+      color: var(--ma60);
+      border-color: #b9a4df;
+      background: #f6f1ff;
     }
 
     .cover {
@@ -528,8 +570,8 @@
     .chart-tooltip {
       position: absolute;
       z-index: 4;
-      min-width: 180px;
-      max-width: min(260px, calc(100% - 24px));
+      min-width: 220px;
+      max-width: min(340px, calc(100% - 24px));
       padding: 9px 10px;
       border: 1px solid var(--line-strong);
       border-radius: var(--radius);
@@ -553,6 +595,28 @@
 
     .chart-tooltip .sell {
       color: var(--green);
+    }
+
+    .chart-tooltip .muted {
+      color: var(--muted);
+    }
+
+    .chart-tooltip .tooltip-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 2px 10px;
+    }
+
+    .chart-tooltip .tooltip-grid span:nth-child(2n) {
+      text-align: right;
+      color: #1f2a44;
+    }
+
+    .chart-tooltip .tooltip-note {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid var(--line);
+      color: #344054;
     }
 
     .lower-grid {
@@ -982,10 +1046,10 @@
                 <span id="chartSubTitle">只显示当前时间以前的行情</span>
               </div>
               <div class="indicator-strip">
-                <span class="pill" id="ma5Pill">MA5 --</span>
-                <span class="pill" id="ma10Pill">MA10 --</span>
-                <span class="pill" id="ma20Pill">MA20 --</span>
-                <span class="pill" id="ma60Pill">MA60 --</span>
+                <span class="pill ma-pill ma5" id="ma5Pill">MA5 --</span>
+                <span class="pill ma-pill ma10" id="ma10Pill">MA10 --</span>
+                <span class="pill ma-pill ma20" id="ma20Pill">MA20 --</span>
+                <span class="pill ma-pill ma60" id="ma60Pill">MA60 --</span>
                 <span class="pill" id="rsiPill">RSI --</span>
                 <span class="pill" id="macdPill">MACD --</span>
               </div>
@@ -1120,6 +1184,12 @@
         EUR: "€",
         GBP: "£"
       };
+      const MA_COLORS = {
+        ma5: "#d9901f",
+        ma10: "#2f86d2",
+        ma20: "#c65bb8",
+        ma60: "#6f4bb6"
+      };
 
       const state = {
         db: null,
@@ -1139,7 +1209,8 @@
           dragging: false,
           dragStartX: 0,
           dragStartOffset: 0,
-          markers: []
+          markers: [],
+          hover: null
         }
       };
 
@@ -2996,7 +3067,7 @@
       }
 
       function renderCharts() {
-        hideChartTooltip();
+        hideChartTooltip(false);
         drawPriceChart();
         drawEquityChart();
       }
@@ -3020,13 +3091,13 @@
           state.chart.visibleBars = nextVisible;
           state.chart.offset = state.currentIndex - nextEnd;
           clampChartView();
-          hideChartTooltip();
+          hideChartTooltip(false);
           renderCharts();
         }, { passive: false });
 
         canvas.addEventListener("pointerdown", (event) => {
           if (!state.active || !state.active.bars.length) return;
-          hideChartTooltip();
+          hideChartTooltip(false);
           state.chart.dragging = true;
           state.chart.dragStartX = event.clientX;
           state.chart.dragStartOffset = state.chart.offset;
@@ -3045,7 +3116,7 @@
           const deltaBars = Math.round((event.clientX - state.chart.dragStartX) / barWidth);
           state.chart.offset = state.chart.dragStartOffset + deltaBars;
           clampChartView();
-          hideChartTooltip();
+          hideChartTooltip(false);
           renderCharts();
         });
 
@@ -3241,10 +3312,10 @@
           ctx.globalAlpha = 1;
         });
 
-        drawLine(ctx, bars, "ma5", x, y, "#1769aa");
-        drawLine(ctx, bars, "ma10", x, y, "#0f8a75");
-        drawLine(ctx, bars, "ma20", x, y, "#b96b00");
-        drawLine(ctx, bars, "ma60", x, y, "#6f4bb6");
+        drawLine(ctx, bars, "ma5", x, y, MA_COLORS.ma5);
+        drawLine(ctx, bars, "ma10", x, y, MA_COLORS.ma10);
+        drawLine(ctx, bars, "ma20", x, y, MA_COLORS.ma20);
+        drawLine(ctx, bars, "ma60", x, y, MA_COLORS.ma60);
         drawTradeMarkers(ctx, view, x, y, priceTop, priceBottom);
 
         const currentLocalIndex = state.currentIndex - view.start;
@@ -3258,6 +3329,7 @@
           ctx.stroke();
           ctx.setLineDash([]);
         }
+        drawChartCrosshair(ctx, view, x, y, pad.left, width - pad.right, priceTop, priceBottom, height - pad.bottom);
 
         ctx.fillStyle = "#667085";
         ctx.textAlign = "left";
@@ -3396,14 +3468,117 @@
         ctx.fillText(label, x, y);
       }
 
+      function drawChartCrosshair(ctx, view, x, y, left, right, top, bottom, fullBottom) {
+        const hover = state.chart.hover;
+        if (!hover || hover.index < view.start || hover.index > view.end) return;
+        const localIndex = hover.index - view.start;
+        const bar = view.bars[localIndex];
+        if (!bar) return;
+        const xx = x(localIndex);
+        const closeY = clamp(y(analysisClose(bar)), top, bottom);
+        ctx.save();
+        ctx.strokeStyle = "rgba(23, 105, 170, 0.78)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(xx, top);
+        ctx.lineTo(xx, fullBottom);
+        ctx.moveTo(left, closeY);
+        ctx.lineTo(right, closeY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        drawAxisLabel(ctx, formatShortDate(bar.t), xx, fullBottom - 8, "bottom");
+        drawAxisLabel(ctx, formatPrice(analysisClose(bar)), right - 4, closeY, "right");
+        ctx.restore();
+      }
+
+      function drawAxisLabel(ctx, text, x, y, anchor) {
+        ctx.font = "11px Microsoft YaHei, Arial";
+        const metrics = ctx.measureText(text);
+        const width = metrics.width + 10;
+        const height = 18;
+        let left = anchor === "right" ? x - width : x - width / 2;
+        let top = anchor === "bottom" ? y - height / 2 : y - height / 2;
+        ctx.fillStyle = "rgba(23, 105, 170, 0.92)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(left, top, width, height, 4);
+        } else {
+          ctx.rect(left, top, width, height);
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, left + width / 2, top + height / 2 + 0.5);
+      }
+
       function handleChartHover(event) {
-        if (!state.chart.markers.length || state.chart.dragging) {
+        if (state.chart.dragging) {
           hideChartTooltip();
           return;
         }
+        const hit = getChartHoverHit(event);
+        if (!hit) {
+          hideChartTooltip();
+          return;
+        }
+        const marker = nearestTradeMarker(hit.mouseX, hit.mouseY);
+        state.chart.hover = { index: hit.index };
+        el.priceCanvas.style.cursor = marker ? "pointer" : "crosshair";
+        drawPriceChart();
+        showKlineTooltip(hit, marker && marker.trade);
+      }
+
+      function getChartHoverHit(event) {
         const rect = el.priceCanvas.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
+        const view = getChartWindow();
+        if (!view.bars.length) return null;
+        const pad = { left: 56, right: 18, top: 20, bottom: 28 };
+        const volumeHeight = Math.max(70, rect.height * 0.2);
+        const priceBottom = rect.height - volumeHeight - 34;
+        const fullBottom = rect.height - pad.bottom;
+        if (mouseX < pad.left || mouseX > rect.width - pad.right || mouseY < pad.top || mouseY > fullBottom) {
+          return null;
+        }
+        const plotWidth = rect.width - pad.left - pad.right;
+        const xStep = plotWidth / Math.max(1, view.bars.length);
+        const localIndex = clamp(Math.floor((mouseX - pad.left) / Math.max(1, xStep)), 0, view.bars.length - 1);
+        const bar = view.bars[localIndex];
+        const values = [];
+        view.bars.forEach((item) => {
+          values.push(analysisHigh(item), analysisLow(item));
+          ["ma5", "ma10", "ma20", "ma60"].forEach((key) => {
+            if (item[key] != null) values.push(item[key]);
+          });
+        });
+        const minPrice = Math.min(...values);
+        const maxPrice = Math.max(...values);
+        const range = Math.max(0.0001, maxPrice - minPrice);
+        const low = minPrice - range * 0.05;
+        const high = maxPrice + range * 0.05;
+        const priceHeight = priceBottom - pad.top;
+        const x = pad.left + localIndex * xStep + xStep / 2;
+        const y = priceBottom - ((analysisClose(bar) - low) / Math.max(0.0001, high - low)) * priceHeight;
+        return {
+          index: view.start + localIndex,
+          localIndex,
+          bar,
+          mouseX,
+          mouseY,
+          x,
+          y: clamp(y, pad.top, priceBottom)
+        };
+      }
+
+      function nearestTradeMarker(mouseX, mouseY) {
+        if (!state.chart.markers.length) return null;
         let best = null;
         let bestDistance = Infinity;
         state.chart.markers.forEach((marker) => {
@@ -3413,26 +3588,48 @@
             best = marker;
           }
         });
-        if (!best || bestDistance > best.r + 6) {
-          hideChartTooltip();
-          return;
-        }
-        el.priceCanvas.style.cursor = "pointer";
-        showChartTooltip(best.trade, best.x, best.y);
+        return best && bestDistance <= best.r + 6 ? best : null;
       }
 
-      function showChartTooltip(trade, x, y) {
-        const tooltip = el.chartTooltip;
-        const sideText = trade.side === "buy" ? "买入" : "卖出";
-        const sideClass = trade.side === "buy" ? "buy" : "sell";
-        tooltip.innerHTML = `
-          <strong class="${sideClass}">${sideText} ${formatQuantity(trade.qty)} 股</strong>
-          <div>时间：${escapeHtml(formatDateTime(trade.time))}</div>
-          <div>成交价：${escapeHtml(formatPrice(trade.price))}</div>
-          <div>成交额：${escapeHtml(formatMoney(trade.value))}</div>
-          <div>费用：${escapeHtml(formatMoney(trade.fee))}</div>
-          <div>交易后持仓：${escapeHtml(formatQuantity(trade.positionAfter))}</div>
+      function showKlineTooltip(hit, trade) {
+        const bars = getBars();
+        const analysis = analyzeMovingAverages(bars, hit.index);
+        const signal = analyzeTradeSignal(bars, hit.index);
+        const bar = hit.bar;
+        const tradeHtml = trade ? `
+          <div class="tooltip-note">
+            <strong class="${trade.side === "buy" ? "buy" : "sell"}">${trade.side === "buy" ? "买入" : "卖出"} ${formatQuantity(trade.qty)} 股</strong>
+            <div class="tooltip-grid">
+              <span>成交价</span><span>${escapeHtml(formatPrice(trade.price))}</span>
+              <span>成交额</span><span>${escapeHtml(formatMoney(trade.value))}</span>
+              <span>费用</span><span>${escapeHtml(formatMoney(trade.fee))}</span>
+              <span>交易后持仓</span><span>${escapeHtml(formatQuantity(trade.positionAfter))}</span>
+            </div>
+          </div>
+        ` : "";
+        const html = `
+          <strong>${escapeHtml(formatDateTime(bar.t))}</strong>
+          <div class="tooltip-grid">
+            <span>开盘</span><span>${escapeHtml(formatPrice(analysisOpen(bar)))}</span>
+            <span>最高</span><span>${escapeHtml(formatPrice(analysisHigh(bar)))}</span>
+            <span>最低</span><span>${escapeHtml(formatPrice(analysisLow(bar)))}</span>
+            <span>收盘</span><span>${escapeHtml(formatPrice(analysisClose(bar)))}</span>
+            <span>成交量</span><span>${escapeHtml(compactNumber(bar.volume || 0))}</span>
+            <span>MA5</span><span>${escapeHtml(fmtIndicator(bar.ma5))}</span>
+            <span>MA10</span><span>${escapeHtml(fmtIndicator(bar.ma10))}</span>
+          </div>
+          <div class="tooltip-note">
+            <div><span class="muted">市场形态：</span>${escapeHtml(analysis.state)}</div>
+            <div><span class="muted">买卖点：</span>${escapeHtml(signal.state)}</div>
+          </div>
+          ${tradeHtml}
         `;
+        showChartTooltip(html, hit.x, hit.y);
+      }
+
+      function showChartTooltip(html, x, y) {
+        const tooltip = el.chartTooltip;
+        tooltip.innerHTML = html;
         tooltip.classList.remove("hidden");
         const wrap = tooltip.parentElement.getBoundingClientRect();
         const tooltipWidth = tooltip.offsetWidth || 220;
@@ -3447,12 +3644,15 @@
         tooltip.style.top = `${top}px`;
       }
 
-      function hideChartTooltip() {
+      function hideChartTooltip(redraw = true) {
         if (!el.chartTooltip) return;
+        const hadHover = Boolean(state.chart.hover);
+        state.chart.hover = null;
         el.chartTooltip.classList.add("hidden");
         if (el.priceCanvas && !state.chart.dragging) {
           el.priceCanvas.style.cursor = "";
         }
+        if (redraw && hadHover) drawPriceChart();
       }
 
       function drawEmpty(ctx, width, height, text) {

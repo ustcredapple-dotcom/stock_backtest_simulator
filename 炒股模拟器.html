@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
   <title>炒股模拟器</title>
   <style>
     :root {
@@ -928,6 +929,7 @@
                 <button data-chart-range="240" type="button">240K</button>
                 <button data-chart-range="all" type="button">全部</button>
                 <button id="chartLatestBtn" type="button">最新</button>
+                <span class="pill" id="priceAlignPill">交易不复权 · 分析前复权</span>
               </div>
             </div>
             <div class="canvas-wrap">
@@ -1072,7 +1074,7 @@
         "slippageInput", "resetSimBtn", "clearLedgerBtn", "simStatus", "statTime", "statPrice",
         "statCash", "statQty", "statPosition", "statEquity", "statRealized", "statUnrealized",
         "chartTitle", "chartSubTitle", "ma5Pill", "ma10Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
-        "chartRangePill", "chartLatestBtn", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
+        "chartRangePill", "chartLatestBtn", "priceAlignPill", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
         "priceCanvas", "barIndexPill", "qtyInput", "customAmountInput", "customUnitSelect",
         "buyBtn", "sellBtn", "holdBtn", "maxBuyBtn", "customForwardBtn", "toEndBtn",
         "tradeStatus", "equityCanvas", "returnPill", "ledger", "storageMode"
@@ -1252,6 +1254,7 @@
       }
 
       async function loadDatasetsFromFileStore() {
+        if (!isLocalHttpApp()) return null;
         try {
           const response = await fetchWithTimeout(buildHelperApiUrl("datasets"), { mode: "cors" }, 1200);
           if (!response.ok) return null;
@@ -1266,6 +1269,7 @@
       }
 
       async function saveDatasetToFileStore(dataset) {
+        if (!shouldUseFileStoreForWrite()) return false;
         try {
           const response = await fetchWithTimeout(buildHelperApiUrl("dataset"), {
             method: "POST",
@@ -1280,6 +1284,7 @@
       }
 
       async function deleteDatasetFromFileStore(id) {
+        if (!shouldUseFileStoreForWrite()) return false;
         try {
           const response = await fetchWithTimeout(buildHelperApiUrl("dataset", { id }), {
             method: "DELETE",
@@ -1289,6 +1294,14 @@
         } catch (error) {
           return false;
         }
+      }
+
+      function shouldUseFileStoreForWrite() {
+        return state.fileStore || isLocalHttpApp();
+      }
+
+      function isLocalHttpApp() {
+        return location.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname);
       }
 
       async function saveDataset(dataset) {
@@ -1424,6 +1437,8 @@
           currency: meta.currency || guessCurrency(symbol),
           exchange: meta.exchangeName || meta.fullExchangeName || "",
           source: "Yahoo Finance Chart",
+          priceBasis: "split_adjusted",
+          analysisBasis: "front_adjusted",
           updatedAt: Date.now(),
           bars,
           dividends,
@@ -1496,6 +1511,8 @@
         dataset.interval = dataset.interval || "1d";
         dataset.id = dataset.id || makeDatasetId(dataset.symbol, dataset.interval);
         dataset.currency = dataset.currency || guessCurrency(dataset.symbol);
+        dataset.priceBasis = dataset.priceBasis || inferPriceBasis(dataset);
+        dataset.analysisBasis = "front_adjusted";
         dataset.bars = (dataset.bars || [])
           .map((bar) => ({
             t: Number(bar.t || bar.time || bar.date || Date.parse(bar.datetime || "")),
@@ -1516,7 +1533,43 @@
           .map((item) => ({ t: Number(item.t || item.date || item.time), ratio: Number(item.ratio) || 1, label: item.label || "" }))
           .filter((item) => item.t && item.ratio > 0 && item.ratio !== 1)
           .sort((a, b) => a.t - b.t);
+        alignDatasetPrices(dataset);
         computeIndicators(dataset.bars);
+      }
+
+      function inferPriceBasis(dataset) {
+        const source = String(dataset.source || "");
+        if (/Yahoo Finance Chart/i.test(source)) return "split_adjusted";
+        return "raw";
+      }
+
+      function alignDatasetPrices(dataset) {
+        const splitAdjusted = dataset.priceBasis === "split_adjusted";
+        const splits = dataset.splits || [];
+        dataset.bars.forEach((bar) => {
+          const splitFactor = splitAdjusted ? futureSplitFactor(splits, bar.t) : 1;
+          const adjRatio = Number.isFinite(bar.adjClose) && Number.isFinite(bar.close) && bar.close !== 0
+            ? bar.adjClose / bar.close
+            : 1;
+          bar.marketOpen = bar.open * splitFactor;
+          bar.marketHigh = bar.high * splitFactor;
+          bar.marketLow = bar.low * splitFactor;
+          bar.marketClose = bar.close * splitFactor;
+          bar.analysisOpen = bar.open * adjRatio;
+          bar.analysisHigh = bar.high * adjRatio;
+          bar.analysisLow = bar.low * adjRatio;
+          bar.analysisClose = bar.close * adjRatio;
+        });
+        dataset.dividends.forEach((item) => {
+          const splitFactor = splitAdjusted ? futureSplitFactor(splits, item.t) : 1;
+          item.marketAmount = item.amount * splitFactor;
+        });
+      }
+
+      function futureSplitFactor(splits, time) {
+        return (splits || []).reduce((factor, split) => {
+          return split.t > time ? factor * split.ratio : factor;
+        }, 1);
       }
 
       function isValidBar(bar) {
@@ -1545,8 +1598,8 @@
       function addSma(bars, period, key) {
         let sum = 0;
         for (let i = 0; i < bars.length; i += 1) {
-          sum += bars[i].close;
-          if (i >= period) sum -= bars[i - period].close;
+          sum += analysisClose(bars[i]);
+          if (i >= period) sum -= analysisClose(bars[i - period]);
           bars[i][key] = i >= period - 1 ? sum / period : null;
         }
       }
@@ -1555,7 +1608,7 @@
         let gain = 0;
         let loss = 0;
         for (let i = 1; i < bars.length; i += 1) {
-          const change = bars[i].close - bars[i - 1].close;
+          const change = analysisClose(bars[i]) - analysisClose(bars[i - 1]);
           const up = Math.max(change, 0);
           const down = Math.max(-change, 0);
           if (i <= period) {
@@ -1583,7 +1636,7 @@
       }
 
       function addMacd(bars) {
-        const closes = bars.map((bar) => bar.close);
+        const closes = bars.map((bar) => analysisClose(bar));
         const ema12 = ema(closes, 12);
         const ema26 = ema(closes, 26);
         const diff = closes.map((_, index) => {
@@ -1654,6 +1707,8 @@
           currency: "CNY",
           exchange: "Local Demo",
           source: "内置演示",
+          priceBasis: "raw",
+          analysisBasis: "front_adjusted",
           updatedAt: Date.now(),
           bars,
           dividends,
@@ -1834,7 +1889,27 @@
 
       function currentPrice() {
         const bar = currentBar();
-        return bar ? bar.close : 0;
+        return bar ? marketClose(bar) : 0;
+      }
+
+      function marketClose(bar) {
+        return Number.isFinite(bar && bar.marketClose) ? bar.marketClose : (bar ? bar.close : 0);
+      }
+
+      function analysisOpen(bar) {
+        return Number.isFinite(bar && bar.analysisOpen) ? bar.analysisOpen : (bar ? bar.open : 0);
+      }
+
+      function analysisHigh(bar) {
+        return Number.isFinite(bar && bar.analysisHigh) ? bar.analysisHigh : (bar ? bar.high : 0);
+      }
+
+      function analysisLow(bar) {
+        return Number.isFinite(bar && bar.analysisLow) ? bar.analysisLow : (bar ? bar.low : 0);
+      }
+
+      function analysisClose(bar) {
+        return Number.isFinite(bar && bar.analysisClose) ? bar.analysisClose : (bar ? bar.close : 0);
       }
 
       function trade(side) {
@@ -1970,10 +2045,11 @@
           if (event.t <= fromTime || event.t > toTime || state.processedEvents.has(event.key)) return;
           state.processedEvents.add(event.key);
           if (event.type === "dividend" && state.account.qty > 0) {
-            const cash = state.account.qty * event.amount;
+            const amount = Number.isFinite(event.marketAmount) ? event.marketAmount : event.amount;
+            const cash = state.account.qty * amount;
             state.account.cash += cash;
             state.account.dividends += cash;
-            pushLedger("分红", `${formatDateTime(event.t)} 每股 ${formatPrice(event.amount)}，到账 ${formatMoney(cash)}。`);
+            pushLedger("分红", `${formatDateTime(event.t)} 每股 ${formatPrice(amount)}，到账 ${formatMoney(cash)}。`);
           }
           if (event.type === "split" && state.account.qty > 0 && event.ratio > 0) {
             state.account.qty = Math.floor(state.account.qty * event.ratio * 1000000) / 1000000;
@@ -2025,7 +2101,7 @@
           el.returnPill.textContent = "收益率 --";
           return;
         }
-        const price = bar.close;
+        const price = currentPrice();
         const positionValue = account.qty * price;
         const equity = accountEquity();
         const unrealized = account.qty * (price - account.avgCost);
@@ -2044,7 +2120,8 @@
         el.chartTitle.textContent = state.active
           ? `${state.active.symbol} ${state.active.displayName || ""}`.trim()
           : "等待数据";
-        el.chartSubTitle.textContent = `${state.active.interval} · ${state.active.source || ""} · ${formatDateRange(state.active)}`;
+        el.chartSubTitle.textContent = `${state.active.interval} · 图表前复权 / 交易不复权 · ${state.active.source || ""} · ${formatDateRange(state.active)}`;
+        el.priceAlignPill.textContent = "交易不复权 · 分析前复权";
       }
 
       function setSigned(node, value, currency, signed) {
@@ -2107,7 +2184,7 @@
 
       function analyzeMovingAverages(bars, index) {
         const bar = bars[index];
-        const price = bar.close;
+        const price = analysisClose(bar);
         const maItems = [
           { key: "ma5", label: "MA5", period: 5, meaning: "短线平均成本" },
           { key: "ma10", label: "MA10", period: 10, meaning: "短中线平均成本" },
@@ -2152,8 +2229,8 @@
         const farApart = !intertwined && !nearTouch && shortLongSpread >= 0.04;
         const prior20 = bars[Math.max(0, index - 20)];
         const prior60 = bars[Math.max(0, index - 60)];
-        const recentReturn20 = prior20 ? price / prior20.close - 1 : 0;
-        const recentReturn60 = prior60 ? price / prior60.close - 1 : 0;
+        const recentReturn20 = prior20 ? price / analysisClose(prior20) - 1 : 0;
+        const recentReturn60 = prior60 ? price / analysisClose(prior60) - 1 : 0;
         const longDown = recentReturn60 < -0.08 || slope.ma60 < -0.002;
         const longUp = recentReturn60 > 0.08 || slope.ma60 > 0.002;
 
@@ -2416,8 +2493,8 @@
         ctx.clearRect(0, 0, width, height);
         const bars = state.active ? state.active.bars.slice(-80) : generateCoverBars();
         const pad = 12;
-        const min = Math.min(...bars.map((bar) => bar.low));
-        const max = Math.max(...bars.map((bar) => bar.high));
+        const min = Math.min(...bars.map((bar) => analysisLow(bar)));
+        const max = Math.max(...bars.map((bar) => analysisHigh(bar)));
         const x = (index) => pad + index * ((width - pad * 2) / Math.max(1, bars.length - 1));
         const y = (value) => height - pad - ((value - min) / Math.max(0.0001, max - min)) * (height - pad * 2);
         ctx.strokeStyle = "rgba(19, 34, 58, 0.08)";
@@ -2430,16 +2507,20 @@
           ctx.stroke();
         }
         bars.forEach((bar, index) => {
-          const up = bar.close >= bar.open;
+          const open = analysisOpen(bar);
+          const high = analysisHigh(bar);
+          const low = analysisLow(bar);
+          const close = analysisClose(bar);
+          const up = close >= open;
           const xx = x(index);
           ctx.strokeStyle = up ? "rgba(210, 59, 59, 0.72)" : "rgba(17, 138, 85, 0.72)";
           ctx.fillStyle = ctx.strokeStyle;
           ctx.beginPath();
-          ctx.moveTo(xx, y(bar.low));
-          ctx.lineTo(xx, y(bar.high));
+          ctx.moveTo(xx, y(low));
+          ctx.lineTo(xx, y(high));
           ctx.stroke();
-          const top = y(Math.max(bar.open, bar.close));
-          const bottom = y(Math.min(bar.open, bar.close));
+          const top = y(Math.max(open, close));
+          const bottom = y(Math.min(open, close));
           ctx.fillRect(xx - 2, top, 4, Math.max(2, bottom - top));
         });
       }
@@ -2487,7 +2568,7 @@
         const priceHeight = priceBottom - priceTop;
         const values = [];
         bars.forEach((bar) => {
-          values.push(bar.high, bar.low);
+          values.push(analysisHigh(bar), analysisLow(bar));
           ["ma5", "ma10", "ma20", "ma60"].forEach((key) => {
             if (bar[key] != null) values.push(bar[key]);
           });
@@ -2515,15 +2596,19 @@
         }
 
         bars.forEach((bar, index) => {
-          const up = bar.close >= bar.open;
+          const open = analysisOpen(bar);
+          const highValue = analysisHigh(bar);
+          const lowValue = analysisLow(bar);
+          const close = analysisClose(bar);
+          const up = close >= open;
           const xx = x(index);
-          const top = y(Math.max(bar.open, bar.close));
-          const bottom = y(Math.min(bar.open, bar.close));
+          const top = y(Math.max(open, close));
+          const bottom = y(Math.min(open, close));
           ctx.strokeStyle = up ? "#d23b3b" : "#118a55";
           ctx.fillStyle = up ? "rgba(210, 59, 59, 0.82)" : "rgba(17, 138, 85, 0.82)";
           ctx.beginPath();
-          ctx.moveTo(xx, y(bar.low));
-          ctx.lineTo(xx, y(bar.high));
+          ctx.moveTo(xx, y(lowValue));
+          ctx.lineTo(xx, y(highValue));
           ctx.stroke();
           ctx.fillRect(xx - candleWidth / 2, top, candleWidth, Math.max(1.5, bottom - top));
           const volumeTop = vy(bar.volume || 0);
@@ -2796,6 +2881,8 @@
           currency: guessCurrency(symbol),
           exchange: "",
           source: `CSV ${fileName}`,
+          priceBasis: "raw",
+          analysisBasis: "front_adjusted",
           updatedAt: Date.now(),
           bars,
           dividends: [],

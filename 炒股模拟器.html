@@ -525,6 +525,36 @@
       cursor: grabbing;
     }
 
+    .chart-tooltip {
+      position: absolute;
+      z-index: 4;
+      min-width: 180px;
+      max-width: min(260px, calc(100% - 24px));
+      padding: 9px 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 10px 24px rgba(18, 32, 56, 0.13);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.55;
+      pointer-events: none;
+    }
+
+    .chart-tooltip strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .chart-tooltip .buy {
+      color: var(--red);
+    }
+
+    .chart-tooltip .sell {
+      color: var(--green);
+    }
+
     .lower-grid {
       display: grid;
       grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 0.9fr);
@@ -779,6 +809,17 @@
                 <label for="symbolInput">股票代码</label>
                 <input id="symbolInput" value="AAPL" autocomplete="off" />
               </div>
+              <div>
+                <label for="symbolMarketSelect">代码市场</label>
+                <select id="symbolMarketSelect">
+                  <option value="auto" selected>自动识别</option>
+                  <option value="us">美股</option>
+                  <option value="cn">A 股</option>
+                  <option value="hk">港股</option>
+                  <option value="kr">韩股 KOSPI</option>
+                  <option value="kr-kq">韩股 KOSDAQ</option>
+                </select>
+              </div>
               <div class="field-grid">
                 <div>
                   <label for="intervalSelect">K 线周期</label>
@@ -813,7 +854,7 @@
               </div>
               <div>
                 <label for="watchlistInput">主流池</label>
-                <textarea id="watchlistInput">AAPL, MSFT, NVDA, TSLA, AMZN, GOOG, META, SPY, QQQ, 600519.SS, 000001.SZ, 0700.HK</textarea>
+                <textarea id="watchlistInput">AAPL, MSFT, NVDA, TSLA, AMZN, GOOG, META, SPY, QQQ, 600519.SS, 000001.SZ, 0700.HK, 005930.KS</textarea>
               </div>
               <div class="button-row">
                 <button id="batchBtn" type="button">下载主流池</button>
@@ -934,6 +975,7 @@
             </div>
             <div class="canvas-wrap">
               <canvas id="priceCanvas"></canvas>
+              <div id="chartTooltip" class="chart-tooltip hidden"></div>
             </div>
           </section>
 
@@ -1052,6 +1094,7 @@
         account: null,
         history: [],
         ledger: [],
+        trades: [],
         processedEvents: new Set(),
         fileStore: false,
         fileStoreDir: "",
@@ -1060,7 +1103,8 @@
           offset: 0,
           dragging: false,
           dragStartX: 0,
-          dragStartOffset: 0
+          dragStartOffset: 0,
+          markers: []
         }
       };
 
@@ -1068,13 +1112,13 @@
       const ids = [
         "repoCount", "activeSymbol", "coverDatasetCount", "coverBarCount", "cover", "workspace",
         "startBtn", "showAppBtn", "homeBtn", "coverCanvas", "symbolInput", "intervalSelect",
-        "rangeSelect", "downloadBtn", "demoBtn", "watchlistInput", "batchBtn", "exportBtn",
+        "symbolMarketSelect", "rangeSelect", "downloadBtn", "demoBtn", "watchlistInput", "batchBtn", "exportBtn",
         "importBtn", "importFile", "datasetSelect", "datasetTable", "dataStatus", "startTimeInput",
         "initialCashInput", "marketSelect", "commissionInput", "minFeeInput", "stampInput",
         "slippageInput", "resetSimBtn", "clearLedgerBtn", "simStatus", "statTime", "statPrice",
         "statCash", "statQty", "statPosition", "statEquity", "statRealized", "statUnrealized",
         "chartTitle", "chartSubTitle", "ma5Pill", "ma10Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
-        "chartRangePill", "chartLatestBtn", "priceAlignPill", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
+        "chartRangePill", "chartLatestBtn", "priceAlignPill", "chartTooltip", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
         "priceCanvas", "barIndexPill", "qtyInput", "customAmountInput", "customUnitSelect",
         "buyBtn", "sellBtn", "holdBtn", "maxBuyBtn", "customForwardBtn", "toEndBtn",
         "tradeStatus", "equityCanvas", "returnPill", "ledger", "storageMode"
@@ -1324,11 +1368,12 @@
       }
 
       async function downloadCurrentSymbol() {
-        const symbol = cleanSymbol(el.symbolInput.value);
+        const symbol = normalizeTicker(el.symbolInput.value, el.symbolMarketSelect.value);
         if (!symbol) {
           setStatus(el.dataStatus, "请输入股票代码。", "error");
           return;
         }
+        el.symbolInput.value = symbol;
         const interval = el.intervalSelect.value;
         const range = el.rangeSelect.value;
         try {
@@ -1345,9 +1390,10 @@
       async function downloadWatchlist() {
         const symbols = el.watchlistInput.value
           .split(/[,，\s]+/)
-          .map(cleanSymbol)
+          .map((item) => normalizeTickerToken(item))
           .filter(Boolean);
-        if (!symbols.length) {
+        const uniqueSymbols = Array.from(new Set(symbols));
+        if (!uniqueSymbols.length) {
           setStatus(el.dataStatus, "主流池为空。", "error");
           return;
         }
@@ -1356,7 +1402,7 @@
         let ok = 0;
         let fail = 0;
         el.batchBtn.disabled = true;
-        for (const symbol of symbols) {
+        for (const symbol of uniqueSymbols) {
           try {
             setStatus(el.dataStatus, `正在下载 ${symbol}...`);
             const dataset = await fetchMarketDataset(symbol, interval, range);
@@ -1823,6 +1869,8 @@
           el.marketSelect.value = "cn";
         } else if (/\.HK$/i.test(symbol)) {
           el.marketSelect.value = "hk";
+        } else if (/\.KS$|\.KQ$/i.test(symbol)) {
+          el.marketSelect.value = "custom";
         } else {
           el.marketSelect.value = "us";
         }
@@ -1870,6 +1918,7 @@
         };
         state.history = [];
         state.ledger = [];
+        state.trades = [];
         state.processedEvents = new Set();
         state.chart.offset = 0;
         recordHistory();
@@ -1937,6 +1986,7 @@
             ? (previousQtyValue + value + fee) / state.account.qty
             : 0;
           state.account.fees += fee;
+          recordTrade("buy", qty, price, fee, value);
           pushLedger("买入", `${qty} 股 @ ${formatPrice(price)}，费用 ${formatMoney(fee)}。`);
           setStatus(el.tradeStatus, `已买入 ${qty} 股。`, "ok");
         } else {
@@ -1954,6 +2004,7 @@
           state.account.realized += proceeds - cost;
           state.account.fees += fee;
           if (state.account.qty === 0) state.account.avgCost = 0;
+          recordTrade("sell", qty, price, fee, value);
           pushLedger("卖出", `${qty} 股 @ ${formatPrice(price)}，费用 ${formatMoney(fee)}。`);
           setStatus(el.tradeStatus, `已卖出 ${qty} 股。`, "ok");
         }
@@ -1995,6 +2046,32 @@
         const minFee = Number(el.minFeeInput.value || 0);
         const commission = commissionRate > 0 ? Math.max(minFee, value * commissionRate) : 0;
         return commission + value * stampRate + value * slippageRate;
+      }
+
+      function recordTrade(side, qty, price, fee, value) {
+        const bar = currentBar();
+        if (!bar) return;
+        const markerPrice = marketToAnalysisPrice(bar, price);
+        state.trades.push({
+          id: `${Date.now()}_${state.trades.length}`,
+          side,
+          index: state.currentIndex,
+          time: bar.t,
+          qty,
+          price,
+          markerPrice,
+          fee,
+          value,
+          cashAfter: state.account.cash,
+          positionAfter: state.account.qty
+        });
+      }
+
+      function marketToAnalysisPrice(bar, price) {
+        const market = marketClose(bar);
+        const analysis = analysisClose(bar);
+        if (!Number.isFinite(market) || market === 0 || !Number.isFinite(analysis)) return analysis;
+        return price * (analysis / market);
       }
 
       function forwardBars(count) {
@@ -2381,6 +2458,7 @@
       }
 
       function renderCharts() {
+        hideChartTooltip();
         drawPriceChart();
         drawEquityChart();
       }
@@ -2404,11 +2482,13 @@
           state.chart.visibleBars = nextVisible;
           state.chart.offset = state.currentIndex - nextEnd;
           clampChartView();
+          hideChartTooltip();
           renderCharts();
         }, { passive: false });
 
         canvas.addEventListener("pointerdown", (event) => {
           if (!state.active || !state.active.bars.length) return;
+          hideChartTooltip();
           state.chart.dragging = true;
           state.chart.dragStartX = event.clientX;
           state.chart.dragStartOffset = state.chart.offset;
@@ -2417,13 +2497,17 @@
         });
 
         canvas.addEventListener("pointermove", (event) => {
-          if (!state.chart.dragging) return;
+          if (!state.chart.dragging) {
+            handleChartHover(event);
+            return;
+          }
           const rect = canvas.getBoundingClientRect();
           const win = getChartWindow();
           const barWidth = Math.max(1, (rect.width - 74) / Math.max(1, win.visibleBars));
           const deltaBars = Math.round((event.clientX - state.chart.dragStartX) / barWidth);
           state.chart.offset = state.chart.dragStartOffset + deltaBars;
           clampChartView();
+          hideChartTooltip();
           renderCharts();
         });
 
@@ -2438,6 +2522,7 @@
         canvas.addEventListener("pointerup", endDrag);
         canvas.addEventListener("pointercancel", endDrag);
         canvas.addEventListener("lostpointercapture", endDrag);
+        canvas.addEventListener("pointerleave", hideChartTooltip);
       }
 
       function setChartRange(value) {
@@ -2543,6 +2628,7 @@
         const canvas = el.priceCanvas;
         const ctx = setupCanvas(canvas);
         if (!ctx) return;
+        state.chart.markers = [];
         const rect = canvas.getBoundingClientRect();
         const width = rect.width;
         const height = rect.height || 420;
@@ -2621,6 +2707,7 @@
         drawLine(ctx, bars, "ma10", x, y, "#0f8a75");
         drawLine(ctx, bars, "ma20", x, y, "#b96b00");
         drawLine(ctx, bars, "ma60", x, y, "#6f4bb6");
+        drawTradeMarkers(ctx, view, x, y, priceTop, priceBottom);
 
         const currentLocalIndex = state.currentIndex - view.start;
         if (currentLocalIndex >= 0 && currentLocalIndex < bars.length) {
@@ -2725,6 +2812,109 @@
           }
         });
         if (started) ctx.stroke();
+      }
+
+      function drawTradeMarkers(ctx, view, x, y, priceTop, priceBottom) {
+        state.chart.markers = [];
+        if (!state.trades.length) return;
+        const visible = state.trades.filter((trade) => trade.index >= view.start && trade.index <= view.end);
+        ctx.save();
+        visible.forEach((trade) => {
+          const localIndex = trade.index - view.start;
+          const bar = view.bars[localIndex];
+          if (!bar) return;
+          const xx = x(localIndex);
+          const baseY = clamp(y(trade.markerPrice), priceTop + 14, priceBottom - 14);
+          const color = trade.side === "buy" ? "#d23b3b" : "#118a55";
+          const label = trade.side === "buy" ? "B" : "S";
+          drawTradeBadge(ctx, xx, baseY, trade.side, color, label);
+          state.chart.markers.push({ x: xx, y: baseY, r: 13, trade });
+        });
+        ctx.restore();
+      }
+
+      function drawTradeBadge(ctx, x, y, side, color, label) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (side === "buy") {
+          ctx.moveTo(x, y + 11);
+          ctx.lineTo(x - 9, y - 7);
+          ctx.lineTo(x + 9, y - 7);
+        } else {
+          ctx.moveTo(x, y - 11);
+          ctx.lineTo(x - 9, y + 7);
+          ctx.lineTo(x + 9, y + 7);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "700 10px Microsoft YaHei, Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, x, y);
+      }
+
+      function handleChartHover(event) {
+        if (!state.chart.markers.length || state.chart.dragging) {
+          hideChartTooltip();
+          return;
+        }
+        const rect = el.priceCanvas.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left;
+        const mouseY = event.clientY - rect.top;
+        let best = null;
+        let bestDistance = Infinity;
+        state.chart.markers.forEach((marker) => {
+          const distance = Math.hypot(marker.x - mouseX, marker.y - mouseY);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = marker;
+          }
+        });
+        if (!best || bestDistance > best.r + 6) {
+          hideChartTooltip();
+          return;
+        }
+        el.priceCanvas.style.cursor = "pointer";
+        showChartTooltip(best.trade, best.x, best.y);
+      }
+
+      function showChartTooltip(trade, x, y) {
+        const tooltip = el.chartTooltip;
+        const sideText = trade.side === "buy" ? "买入" : "卖出";
+        const sideClass = trade.side === "buy" ? "buy" : "sell";
+        tooltip.innerHTML = `
+          <strong class="${sideClass}">${sideText} ${formatQuantity(trade.qty)} 股</strong>
+          <div>时间：${escapeHtml(formatDateTime(trade.time))}</div>
+          <div>成交价：${escapeHtml(formatPrice(trade.price))}</div>
+          <div>成交额：${escapeHtml(formatMoney(trade.value))}</div>
+          <div>费用：${escapeHtml(formatMoney(trade.fee))}</div>
+          <div>交易后持仓：${escapeHtml(formatQuantity(trade.positionAfter))}</div>
+        `;
+        tooltip.classList.remove("hidden");
+        const wrap = tooltip.parentElement.getBoundingClientRect();
+        const tooltipWidth = tooltip.offsetWidth || 220;
+        const tooltipHeight = tooltip.offsetHeight || 120;
+        let left = x + 14;
+        let top = y - tooltipHeight - 12;
+        if (left + tooltipWidth > wrap.width - 8) left = x - tooltipWidth - 14;
+        if (top < 8) top = y + 18;
+        left = clamp(left, 8, Math.max(8, wrap.width - tooltipWidth - 8));
+        top = clamp(top, 8, Math.max(8, wrap.height - tooltipHeight - 8));
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      }
+
+      function hideChartTooltip() {
+        if (!el.chartTooltip) return;
+        el.chartTooltip.classList.add("hidden");
+        if (el.priceCanvas && !state.chart.dragging) {
+          el.priceCanvas.style.cursor = "";
+        }
       }
 
       function drawEmpty(ctx, width, height, text) {
@@ -2918,6 +3108,45 @@
         return `${cleanSymbol(symbol).toUpperCase()}__${interval || "1d"}`;
       }
 
+      function normalizeTickerToken(value) {
+        const raw = String(value || "").trim();
+        const match = raw.match(/^(us|cn|hk|kr|ks|kq|ko|kospi|kosdaq)[:：](.+)$/i);
+        if (match) {
+          const market = match[1].toLowerCase();
+          const mapped = market === "ks" || market === "ko" || market === "kospi" ? "kr"
+            : market === "kq" || market === "kosdaq" ? "kr-kq"
+            : market;
+          return normalizeTicker(match[2], mapped);
+        }
+        return normalizeTicker(raw, "auto");
+      }
+
+      function normalizeTicker(value, market = "auto") {
+        const raw = String(value || "").trim().replace(/\s+/g, "").toUpperCase();
+        if (!raw) return "";
+        if (/[.]/.test(raw)) return raw;
+        const digits = raw.replace(/\D/g, "");
+        if (market === "hk") return digits ? `${digits.padStart(4, "0")}.HK` : raw;
+        if (market === "kr" || market === "kr-kq") return digits ? `${digits.padStart(6, "0")}.${market === "kr-kq" ? "KQ" : "KS"}` : raw;
+        if (market === "cn") return normalizeChinaTicker(raw);
+        if (market === "us") return raw;
+        if (/^\d{4,5}$/.test(raw)) return `${digits.padStart(4, "0")}.HK`;
+        if (/^\d{6}$/.test(raw)) {
+          if (/^(5|6|9)/.test(raw)) return `${raw}.SS`;
+          if (/^(0|1|2|3)/.test(raw)) return `${raw}.SZ`;
+          return `${raw}.KS`;
+        }
+        return raw;
+      }
+
+      function normalizeChinaTicker(raw) {
+        const code = String(raw || "").toUpperCase().replace(/^SH|^SZ/, "");
+        if (/\.(SS|SZ)$/i.test(raw)) return raw.toUpperCase();
+        if (!/^\d{6}$/.test(code)) return String(raw || "").toUpperCase();
+        if (/^(5|6|9)/.test(code)) return `${code}.SS`;
+        return `${code}.SZ`;
+      }
+
       function cleanSymbol(value) {
         return String(value || "").trim().replace(/\s+/g, "").toUpperCase();
       }
@@ -2925,6 +3154,7 @@
       function guessCurrency(symbol) {
         if (/\.SS$|\.SZ$|^SH|^SZ/i.test(symbol) || symbol === "DEMO") return "CNY";
         if (/\.HK$/i.test(symbol)) return "HKD";
+        if (/\.KS$|\.KQ$/i.test(symbol)) return "KRW";
         return "USD";
       }
 

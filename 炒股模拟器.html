@@ -539,6 +539,33 @@
       font-size: 12px;
     }
 
+    .timeframe-tabs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-2);
+    }
+
+    .timeframe-tabs button {
+      min-width: 34px;
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .timeframe-tabs button.active {
+      color: #fff;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    .timeframe-tabs button:disabled {
+      opacity: 0.38;
+      background: transparent;
+    }
+
     .canvas-wrap {
       height: clamp(380px, 54vh, 620px);
       min-height: 380px;
@@ -913,21 +940,17 @@
               </div>
               <div class="field-grid">
                 <div>
-                  <label for="intervalSelect">K 线周期</label>
+                  <label for="intervalSelect">默认显示尺度</label>
                   <select id="intervalSelect">
                     <option value="1m">1 分钟</option>
-                    <option value="2m">2 分钟</option>
-                    <option value="5m">5 分钟</option>
-                    <option value="15m">15 分钟</option>
-                    <option value="30m">30 分钟</option>
-                    <option value="60m">60 分钟</option>
+                    <option value="60m">1 小时</option>
                     <option value="1d" selected>日线</option>
                     <option value="1wk">周线</option>
                     <option value="1mo">月线</option>
                   </select>
                 </div>
                 <div>
-                  <label for="rangeSelect">下载范围</label>
+                  <label for="rangeSelect">长周期范围</label>
                   <select id="rangeSelect">
                     <option value="7d">7 天</option>
                     <option value="30d">30 天</option>
@@ -940,7 +963,7 @@
                 </div>
               </div>
               <div class="button-row">
-                <button id="downloadBtn" class="primary" type="button">下载到仓库</button>
+                <button id="downloadBtn" class="primary" type="button">下载标的全周期</button>
                 <button id="demoBtn" type="button">载入演示</button>
               </div>
               <div>
@@ -1054,6 +1077,13 @@
                 <span class="pill" id="macdPill">MACD --</span>
               </div>
               <div class="chart-tools">
+                <div class="timeframe-tabs" aria-label="时间尺度">
+                  <button data-timeframe-interval="1m" type="button">分</button>
+                  <button data-timeframe-interval="60m" type="button">时</button>
+                  <button data-timeframe-interval="1d" type="button">日</button>
+                  <button data-timeframe-interval="1wk" type="button">周</button>
+                  <button data-timeframe-interval="1mo" type="button">月</button>
+                </div>
                 <span class="pill" id="chartRangePill">显示 --</span>
                 <button data-chart-range="30" type="button">30K</button>
                 <button data-chart-range="60" type="button">60K</button>
@@ -1190,6 +1220,13 @@
         ma20: "#c65bb8",
         ma60: "#6f4bb6"
       };
+      const TIMEFRAME_PRESETS = [
+        { key: "minute", label: "分", interval: "1m", range: "max" },
+        { key: "hour", label: "时", interval: "60m", range: "max" },
+        { key: "day", label: "日", interval: "1d", range: null },
+        { key: "week", label: "周", interval: "1wk", range: null },
+        { key: "month", label: "月", interval: "1mo", range: null }
+      ];
 
       const state = {
         db: null,
@@ -1302,6 +1339,9 @@
         el.toEndBtn.addEventListener("click", () => forwardToIndex(getBars().length - 1));
         document.querySelectorAll("[data-chart-range]").forEach((button) => {
           button.addEventListener("click", () => setChartRange(button.dataset.chartRange));
+        });
+        document.querySelectorAll("[data-timeframe-interval]").forEach((button) => {
+          button.addEventListener("click", () => switchTimeframe(button.dataset.timeframeInterval));
         });
         el.chartLatestBtn.addEventListener("click", () => {
           state.chart.offset = 0;
@@ -1481,17 +1521,28 @@
           return;
         }
         el.symbolInput.value = symbol;
-        const interval = el.intervalSelect.value;
-        const range = el.rangeSelect.value;
+        const preferredInterval = el.intervalSelect.value || "1d";
+        const baseRange = el.rangeSelect.value;
         try {
-          setStatus(el.dataStatus, `正在下载 ${symbol} ${interval}...`);
-          const dataset = await fetchMarketDataset(symbol, interval, range);
-          await saveDataset(dataset);
-          const quality = dataQualityText(dataset);
+          setStatus(el.dataStatus, `正在下载 ${symbol} 全周期...`);
+          const result = await downloadSymbolAllTimeframes(symbol, baseRange, (preset) => {
+            setStatus(el.dataStatus, `正在下载 ${symbol} ${preset.label}线...`);
+          });
+          if (!result.datasets.length) {
+            throw new Error(result.failures.map((item) => `${item.label}: ${item.error}`).join("；") || "没有任何周期下载成功。");
+          }
+          for (const dataset of result.datasets) {
+            await putDataset(dataset);
+          }
+          state.datasets = await getAllDatasets();
+          renderRepository();
+          const preferred = result.datasets.find((item) => item.interval === preferredInterval) || result.datasets.find((item) => item.interval === "1d") || result.datasets[0];
+          selectDataset(preferred.id);
+          const warn = result.datasets.filter((dataset) => dataQualityText(dataset)).length + result.failures.length;
           setStatus(
             el.dataStatus,
-            `${symbol} 已保存，K 线 ${dataset.bars.length} 条。${quality ? ` 数据提醒：${quality}` : ""}`,
-            quality ? "error" : "ok"
+            `${symbol} 全周期完成：成功 ${result.datasets.length} 个，提醒/失败 ${warn} 个。${result.failures.length ? ` ${formatFailures(result.failures)}` : ""}`,
+            warn ? "error" : "ok"
           );
         } catch (error) {
           console.error(error);
@@ -1509,19 +1560,24 @@
           setStatus(el.dataStatus, "主流池为空。", "error");
           return;
         }
-        const interval = el.intervalSelect.value;
-        const range = el.rangeSelect.value;
+        const preferredInterval = el.intervalSelect.value || "1d";
+        const baseRange = el.rangeSelect.value;
         let ok = 0;
         let fail = 0;
         let warn = 0;
         el.batchBtn.disabled = true;
         for (const symbol of uniqueSymbols) {
           try {
-            setStatus(el.dataStatus, `正在下载 ${symbol}...`);
-            const dataset = await fetchMarketDataset(symbol, interval, range);
-            await putDataset(dataset);
-            ok += 1;
-            if (dataQualityText(dataset)) warn += 1;
+            setStatus(el.dataStatus, `正在下载 ${symbol} 全周期...`);
+            const result = await downloadSymbolAllTimeframes(symbol, baseRange, (preset) => {
+              setStatus(el.dataStatus, `正在下载 ${symbol} ${preset.label}线...`);
+            });
+            for (const dataset of result.datasets) {
+              await putDataset(dataset);
+            }
+            if (result.datasets.length) ok += 1;
+            else fail += 1;
+            warn += result.failures.length + result.datasets.filter((dataset) => dataQualityText(dataset)).length;
           } catch (error) {
             console.warn(symbol, error);
             fail += 1;
@@ -1529,9 +1585,43 @@
         }
         el.batchBtn.disabled = false;
         await refreshRepository();
-        if (state.datasets.length && !state.active) selectDataset(state.datasets[0].id);
+        if (state.datasets.length && !state.active) {
+          const firstPreferred = state.datasets.find((item) => item.interval === preferredInterval) || state.datasets[0];
+          selectDataset(firstPreferred.id);
+        }
         renderRepository();
         setStatus(el.dataStatus, `主流池完成：成功 ${ok}，数据提醒 ${warn}，失败 ${fail}。`, fail || warn ? "error" : "ok");
+      }
+
+      async function downloadSymbolAllTimeframes(symbol, baseRange, onProgress) {
+        const datasets = [];
+        const failures = [];
+        for (const preset of TIMEFRAME_PRESETS) {
+          try {
+            if (onProgress) onProgress(preset);
+            const range = preset.range || baseRange || "max";
+            const dataset = await fetchMarketDataset(symbol, preset.interval, range);
+            dataset.timeframeKey = preset.key;
+            datasets.push(dataset);
+          } catch (error) {
+            failures.push({
+              key: preset.key,
+              label: preset.label,
+              interval: preset.interval,
+              error: error && error.message ? error.message : String(error)
+            });
+          }
+        }
+        return { datasets, failures };
+      }
+
+      function formatFailures(failures) {
+        const list = (failures || [])
+          .slice(0, 3)
+          .map((item) => `${intervalLabel(item.interval)}：${item.error}`)
+          .join("；");
+        const more = failures && failures.length > 3 ? `；另 ${failures.length - 3} 个周期失败` : "";
+        return list ? `未成功：${list}${more}` : "";
       }
 
       async function fetchMarketDataset(symbol, interval, range) {
@@ -2002,6 +2092,7 @@
           });
         }
         renderDatasetTable();
+        renderTimeframeButtons();
         drawCover();
       }
 
@@ -2048,7 +2139,7 @@
         });
       }
 
-      function selectDataset(id) {
+      function selectDataset(id, options = {}) {
         const dataset = state.datasets.find((item) => item.id === id);
         if (!dataset) {
           state.active = null;
@@ -2061,22 +2152,106 @@
         el.symbolInput.value = dataset.symbol;
         el.intervalSelect.value = dataset.interval;
         el.activeSymbol.textContent = dataset.symbol;
-        setTimeInputFromDataset(dataset);
+        setTimeInputFromDataset(dataset, options.preserveTime);
         applyDetectedMarket(dataset.symbol);
-        resetSimulation();
+        if (options.preserveSession && state.account) {
+          const bars = getBars();
+          const targetTime = options.preserveTime || (currentBar() && currentBar().t) || bars[0].t;
+          state.currentIndex = Math.max(0, findBarIndexAtOrBefore(bars, targetTime));
+          state.chart.offset = 0;
+          recordHistory();
+          renderAll();
+        } else {
+          resetSimulation();
+        }
+        renderTimeframeButtons();
         const quality = dataQualityText(dataset);
         if (quality) setStatus(el.dataStatus, `${dataset.symbol} 数据提醒：${quality}`, "error");
       }
 
-      function setTimeInputFromDataset(dataset) {
+      function setTimeInputFromDataset(dataset, preferredTime) {
         const bars = dataset.bars;
         if (!bars.length) return;
         const first = bars[0].t;
-        const middle = bars[Math.floor(Math.max(0, bars.length * 0.42))].t;
         const last = bars[bars.length - 1].t;
+        const target = Number.isFinite(preferredTime)
+          ? bars[findBarIndexAtOrBefore(bars, clamp(preferredTime, first, last))].t
+          : bars[Math.floor(Math.max(0, bars.length * 0.42))].t;
         el.startTimeInput.min = toInputDateTime(first);
         el.startTimeInput.max = toInputDateTime(last);
-        el.startTimeInput.value = toInputDateTime(middle);
+        el.startTimeInput.value = toInputDateTime(target);
+      }
+
+      function switchTimeframe(interval) {
+        if (!interval) return;
+        const symbol = state.active ? state.active.symbol : normalizeTicker(el.symbolInput.value, el.symbolMarketSelect.value);
+        const dataset = findDatasetForSymbolInterval(symbol, interval);
+        if (!dataset) {
+          setStatus(el.dataStatus, `${symbol || "当前标的"} 还没有 ${intervalLabel(interval)} 数据。请先点击“下载标的全周期”。`, "error");
+          renderTimeframeButtons();
+          return;
+        }
+        const targetTime = currentBar() ? currentBar().t : (el.startTimeInput.value ? fromInputDateTime(el.startTimeInput.value) : undefined);
+        selectDataset(dataset.id, { preserveTime: targetTime, preserveSession: Boolean(state.account) });
+        setStatus(el.dataStatus, `已切换到 ${dataset.symbol} ${intervalLabel(interval)}，MA5/MA10 按当前尺度计算。`, "ok");
+      }
+
+      function findDatasetForSymbolInterval(symbol, interval) {
+        const normalized = cleanSymbol(symbol);
+        return state.datasets.find((dataset) => cleanSymbol(dataset.symbol) === normalized && dataset.interval === interval) || null;
+      }
+
+      function renderTimeframeButtons() {
+        const symbol = state.active ? state.active.symbol : normalizeTicker(el.symbolInput.value, el.symbolMarketSelect.value);
+        document.querySelectorAll("[data-timeframe-interval]").forEach((button) => {
+          const interval = button.dataset.timeframeInterval;
+          const exists = Boolean(symbol && findDatasetForSymbolInterval(symbol, interval));
+          button.classList.toggle("active", Boolean(state.active && state.active.interval === interval));
+          button.disabled = Boolean(symbol) && !exists;
+          button.title = exists ? `${intervalLabel(interval)} 已缓存` : `未缓存 ${intervalLabel(interval)}，请先下载标的全周期`;
+        });
+      }
+
+      function activeInterval() {
+        return state.active && state.active.interval ? state.active.interval : "1d";
+      }
+
+      function intervalLabel(interval) {
+        const labels = {
+          "1m": "分钟线",
+          "2m": "2分钟线",
+          "5m": "5分钟线",
+          "15m": "15分钟线",
+          "30m": "30分钟线",
+          "60m": "小时线",
+          "1d": "日线",
+          "1wk": "周线",
+          "1mo": "月线"
+        };
+        return labels[interval] || `${interval || "当前"}周期`;
+      }
+
+      function maPeriodText(period, interval = activeInterval()) {
+        if (interval === "1m") return `${period}分钟`;
+        if (interval === "60m") return `${period}小时`;
+        if (interval === "1d") return `${period}日`;
+        if (interval === "1wk") return `${period}周`;
+        if (interval === "1mo") return `${period}月`;
+        const minute = String(interval || "").match(/^(\d+)m$/);
+        if (minute) return `${period}根${minute[1]}分钟K`;
+        return `${period}根K线`;
+      }
+
+      function maScaleLabel(interval = activeInterval()) {
+        return `MA5=${maPeriodText(5, interval)} / MA10=${maPeriodText(10, interval)}`;
+      }
+
+      function timeframeContextLabel(interval = activeInterval()) {
+        return `${intervalLabel(interval)} · ${maScaleLabel(interval)}`;
+      }
+
+      function barCountLabel(count, interval = activeInterval()) {
+        return `${count}根${intervalLabel(interval).replace("线", "K线")}`;
       }
 
       function applyDetectedMarket(symbol) {
@@ -2419,7 +2594,7 @@
           ? `${state.active.symbol} ${state.active.displayName || ""}`.trim()
           : "等待数据";
         const quality = dataQualityText(state.active);
-        el.chartSubTitle.textContent = `${state.active.interval} · 图表前复权 / 交易不复权 · ${state.active.source || ""} · ${formatDateRange(state.active)}${quality ? ` · 数据提醒：${quality}` : ""}`;
+        el.chartSubTitle.textContent = `${timeframeContextLabel(state.active.interval)} · 图表前复权 / 交易不复权 · ${state.active.source || ""} · ${formatDateRange(state.active)}${quality ? ` · 数据提醒：${quality}` : ""}`;
         el.priceAlignPill.textContent = "交易不复权 · 分析前复权";
       }
 
@@ -2435,6 +2610,10 @@
           el.ma10Pill.textContent = "MA10 --";
           el.ma20Pill.textContent = "MA20 --";
           el.ma60Pill.textContent = "MA60 --";
+          el.ma5Pill.title = maPeriodText(5);
+          el.ma10Pill.title = maPeriodText(10);
+          el.ma20Pill.title = maPeriodText(20);
+          el.ma60Pill.title = maPeriodText(60);
           el.rsiPill.textContent = "RSI --";
           el.macdPill.textContent = "MACD --";
           return;
@@ -2443,6 +2622,10 @@
         el.ma10Pill.textContent = `MA10 ${fmtIndicator(bar.ma10)}`;
         el.ma20Pill.textContent = `MA20 ${fmtIndicator(bar.ma20)}`;
         el.ma60Pill.textContent = `MA60 ${fmtIndicator(bar.ma60)}`;
+        el.ma5Pill.title = maPeriodText(5);
+        el.ma10Pill.title = maPeriodText(10);
+        el.ma20Pill.title = maPeriodText(20);
+        el.ma60Pill.title = maPeriodText(60);
         el.rsiPill.textContent = `RSI ${fmtIndicator(bar.rsi14)}`;
         el.macdPill.textContent = `MACD ${fmtIndicator(bar.macd)}`;
       }
@@ -2495,11 +2678,12 @@
       function analyzeMovingAverages(bars, index) {
         const bar = bars[index];
         const price = analysisClose(bar);
+        const interval = activeInterval();
         const maItems = [
-          { key: "ma5", label: "MA5", period: 5, meaning: "短线平均成本" },
-          { key: "ma10", label: "MA10", period: 10, meaning: "短中线平均成本" },
-          { key: "ma20", label: "MA20", period: 20, meaning: "中期平均成本" },
-          { key: "ma60", label: "MA60", period: 60, meaning: "长期平均成本" }
+          { key: "ma5", label: "MA5", period: 5, meaning: `${maPeriodText(5, interval)}平均成本` },
+          { key: "ma10", label: "MA10", period: 10, meaning: `${maPeriodText(10, interval)}平均成本` },
+          { key: "ma20", label: "MA20", period: 20, meaning: `${maPeriodText(20, interval)}平均成本` },
+          { key: "ma60", label: "MA60", period: 60, meaning: `${maPeriodText(60, interval)}平均成本` }
         ];
         const rows = maItems.map((item) => makeMaRow(bars, index, item, price));
         const values = Object.fromEntries(maItems.map((item) => [item.key, bar[item.key]]));
@@ -2510,9 +2694,9 @@
           return {
             state: "数据积累中",
             tone: "neutral",
-            text: `当前 K 线数量还不足以完整计算 MA60。已可参考：${enough}。`,
-            cycle: `${index + 1} / ${bars.length}`,
-            tags: ["样本不足", `价格 ${formatPrice(price)}`],
+            text: `当前${intervalLabel(interval)}数量还不足以完整计算 MA60（${maPeriodText(60, interval)}）。已可参考：${enough}。`,
+            cycle: `${timeframeContextLabel(interval)} · ${index + 1} / ${bars.length}`,
+            tags: [intervalLabel(interval), maScaleLabel(interval), "样本不足", `价格 ${formatPrice(price)}`],
             rows
           };
         }
@@ -2599,8 +2783,10 @@
           state: stateLabel,
           tone,
           text,
-          cycle: `${state.active ? state.active.interval : "周期"} · ${formatShortDate(bar.t)}`,
+          cycle: `${timeframeContextLabel(interval)} · ${formatShortDate(bar.t)}`,
           tags: [
+            intervalLabel(interval),
+            maScaleLabel(interval),
             order,
             relation,
             pricePosition,
@@ -2612,6 +2798,7 @@
 
       function analyzeTradeSignal(bars, index) {
         const bar = bars[index];
+        const interval = activeInterval();
         if (!bar) {
           return makeTradeSignal("等待数据", "neutral", "载入数据后会按 MA5/MA10、缠绕、MACD 动能和量能结构判断当前是否接近买点或卖点。", []);
         }
@@ -2621,7 +2808,7 @@
         const ma10 = bar.ma10;
         const ma20 = bar.ma20;
         if (!Number.isFinite(ma5) || !Number.isFinite(ma10) || index < 35) {
-          return makeTradeSignal("样本不足", "neutral", "买卖点判断至少需要 MA5、MA10 和一段 MACD 历史。当前 K 线还不够，先积累样本。", [
+          return makeTradeSignal("样本不足", "neutral", `买卖点判断至少需要 MA5、MA10 和一段 MACD 历史。当前${intervalLabel(interval)}样本还不够，先积累样本。`, [
             `当前 ${index + 1} / ${bars.length}`,
             `价格 ${formatPrice(price)}`
           ]);
@@ -2665,7 +2852,7 @@
             "空头趋势末期出现多次 MA5/MA10 缠绕，近期又创新低但 MACD 绿柱力度变弱，且价格有收回迹象。这更像“空头陷阱 + 底背驰”的试探买点，风险是下跌中继仍未结束。",
             [
               "空头末期",
-              `MA5/MA10近80K交叉 ${cross80} 次`,
+              `MA5/MA10近${barCountLabel(80, interval)}交叉 ${cross80} 次`,
               bottomDivergence.tag,
               recoveredFromLow ? "跌破后收回" : "等待收回",
               volumeNormal ? "量能未异常放大" : "量能偏大"
@@ -2679,7 +2866,7 @@
             "长期偏弱后出现新低和动能减弱迹象，但空头陷阱还没有充分确认。这里更适合观察是否快速收回、是否继续缩短绿柱，而不是盲目抄底。",
             [
               "疑似底背驰",
-              `MA5/MA10近80K交叉 ${cross80} 次`,
+              `MA5/MA10近${barCountLabel(80, interval)}交叉 ${cross80} 次`,
               bottomDivergence.exists ? bottomDivergence.tag : "MACD绿柱开始缩短",
               volumeNormal ? "量能正常" : "量能需警惕"
             ],
@@ -2707,7 +2894,7 @@
               "buy",
               "MA5 上穿 MA10 后趋势已有初步转强，当前属于第一次回调靠近或轻微缠绕。回调没有明显破坏结构，量能也没有异常放大，属于比抄底更稳的趋势确认型买点。",
               [
-                `金叉后 ${trendAge} K`,
+                `金叉后 ${barCountLabel(trendAge, interval)}`,
                 "第一次回调",
                 startupStrength ? "启动有力度" : "启动力度一般",
                 volumeNormal ? "量能健康" : "量能偏热",
@@ -2721,7 +2908,7 @@
               "watch",
               "MA5/MA10 已进入多头后的首次回调观察区，但还需要确认回调不破位、量能不过热、短期动能重新转强。",
               [
-                `金叉后 ${trendAge} K`,
+                `金叉后 ${barCountLabel(trendAge, interval)}`,
                 firstTouch ? "首次靠近" : "缠绕次数增加",
                 volumeNormal ? "量能正常" : "量能偏热",
                 macdControlled ? "动能改善" : "动能待改善"
@@ -2738,7 +2925,7 @@
             "多头趋势后期出现 MA5/MA10 缠绕，近期价格再创新高但 MACD 红柱面积或峰值变弱，并且价格从高位回落。这属于“顶背驰 + 高位缠绕”的第一卖点观察区。",
             [
               "多头末期",
-              `MA5/MA10近80K交叉 ${cross80} 次`,
+              `MA5/MA10近${barCountLabel(80, interval)}交叉 ${cross80} 次`,
               topDivergence.tag,
               retreatedFromHigh ? "冲高后回落" : "等待回落确认",
               volumeNormal ? "量能未继续放大" : "量能异常"
@@ -2753,7 +2940,7 @@
             [
               "疑似顶背驰",
               topDivergence.exists ? topDivergence.tag : "MACD红柱开始缩短",
-              `60K涨跌 ${formatPercent(recentReturn60 * 100)}`
+              `${barCountLabel(60, interval)}涨跌 ${formatPercent(recentReturn60 * 100)}`
             ],
             74
           ));
@@ -2774,7 +2961,7 @@
               "sell",
               "MA5 跌破 MA10 后市场已转弱，当前第一次反弹靠近均线但没有重新转强。这是第一卖点没处理时的补救型卖点，风险是反弹重新站回多头结构。",
               [
-                `死叉后 ${trendAge} K`,
+                `死叉后 ${barCountLabel(trendAge, interval)}`,
                 "第一次反弹",
                 `反弹 ${formatPercent(reboundFromLow * 100)}`,
                 blockedNearMa10 ? "受阻于MA10附近" : "仍在反弹",
@@ -2829,13 +3016,14 @@
 
         return makeTradeSignal("缠绕观察", "watch", "MA5 和 MA10 接近重合，方向还没有选择。这里关键不是预测涨跌，而是等待它演化成中继、转折、买点或卖点。", [
           "MA5 ≈ MA10",
-          `近18K交叉 ${cross18} 次`,
+          `近${barCountLabel(18, interval)}交叉 ${cross18} 次`,
           `MACD ${macd.label}`
         ]);
       }
 
       function makeTradeSignal(stateLabel, tone, text, tags) {
-        return { state: stateLabel, tone, text, tags: tags.filter(Boolean).slice(0, 7) };
+        const contextTags = state.active ? [intervalLabel(activeInterval()), maScaleLabel(activeInterval())] : [];
+        return { state: stateLabel, tone, text, tags: [...contextTags, ...tags].filter(Boolean).slice(0, 8) };
       }
 
       function makeSignalCandidate(stateLabel, tone, text, tags, score) {
@@ -3427,20 +3615,35 @@
       function drawTradeMarkers(ctx, view, x, y, priceTop, priceBottom) {
         state.chart.markers = [];
         if (!state.trades.length) return;
-        const visible = state.trades.filter((trade) => trade.index >= view.start && trade.index <= view.end);
+        const allBars = getBars();
         ctx.save();
-        visible.forEach((trade) => {
-          const localIndex = trade.index - view.start;
+        state.trades.forEach((trade) => {
+          const mappedIndex = tradeIndexInBars(trade, allBars);
+          if (mappedIndex < view.start || mappedIndex > view.end) return;
+          const localIndex = mappedIndex - view.start;
           const bar = view.bars[localIndex];
           if (!bar) return;
           const xx = x(localIndex);
-          const baseY = clamp(y(trade.markerPrice), priceTop + 14, priceBottom - 14);
+          const markerPrice = marketToAnalysisPrice(bar, trade.price);
+          const baseY = clamp(y(markerPrice), priceTop + 14, priceBottom - 14);
           const color = trade.side === "buy" ? "#d23b3b" : "#118a55";
           const label = trade.side === "buy" ? "B" : "S";
           drawTradeBadge(ctx, xx, baseY, trade.side, color, label);
-          state.chart.markers.push({ x: xx, y: baseY, r: 13, trade });
+          state.chart.markers.push({ x: xx, y: baseY, r: 13, trade, index: mappedIndex });
         });
         ctx.restore();
+      }
+
+      function tradeIndexInBars(trade, bars) {
+        if (!trade || !Array.isArray(bars) || !bars.length) return -1;
+        if (Number.isInteger(trade.index) && bars[trade.index] && bars[trade.index].t === trade.time) {
+          return trade.index;
+        }
+        const targetTime = Number(trade.time);
+        if (!Number.isFinite(targetTime) || targetTime < bars[0].t || targetTime > bars[bars.length - 1].t) {
+          return -1;
+        }
+        return findBarIndexAtOrBefore(bars, targetTime);
       }
 
       function drawTradeBadge(ctx, x, y, side, color, label) {
@@ -3596,6 +3799,7 @@
         const analysis = analyzeMovingAverages(bars, hit.index);
         const signal = analyzeTradeSignal(bars, hit.index);
         const bar = hit.bar;
+        const interval = activeInterval();
         const tradeHtml = trade ? `
           <div class="tooltip-note">
             <strong class="${trade.side === "buy" ? "buy" : "sell"}">${trade.side === "buy" ? "买入" : "卖出"} ${formatQuantity(trade.qty)} 股</strong>
@@ -3619,6 +3823,7 @@
             <span>MA10</span><span>${escapeHtml(fmtIndicator(bar.ma10))}</span>
           </div>
           <div class="tooltip-note">
+            <div><span class="muted">尺度：</span>${escapeHtml(timeframeContextLabel(interval))}</div>
             <div><span class="muted">市场形态：</span>${escapeHtml(analysis.state)}</div>
             <div><span class="muted">买卖点：</span>${escapeHtml(signal.state)}</div>
           </div>

@@ -588,6 +588,9 @@
     .advisor-state.weak { color: var(--green); }
     .advisor-state.watch { color: var(--amber); }
     .advisor-state.neutral { color: var(--muted); }
+    .advisor-state.buy { color: var(--red); }
+    .advisor-state.sell { color: var(--green); }
+    .advisor-state.hold { color: #175cd3; }
 
     .advisor-text {
       color: #344054;
@@ -615,6 +618,30 @@
 
     .advisor-table td:last-child {
       color: var(--muted);
+    }
+
+    .signal-panel {
+      grid-column: 1 / -1;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .signal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .signal-head span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
     }
 
     .trade-grid {
@@ -1005,6 +1032,14 @@
                     <tbody id="advisorTable"></tbody>
                   </table>
                 </div>
+                <div class="signal-panel">
+                  <div class="signal-head">
+                    <span>买卖点判断</span>
+                    <strong id="tradeSignalState" class="advisor-state neutral">等待数据</strong>
+                  </div>
+                  <div id="tradeSignalText" class="advisor-text">载入数据后会按 MA5/MA10、缠绕、MACD 动能和量能结构判断当前是否接近买点或卖点。</div>
+                  <div id="tradeSignalTags" class="advisor-tags"></div>
+                </div>
               </div>
             </div>
           </section>
@@ -1119,6 +1154,7 @@
         "statCash", "statQty", "statPosition", "statEquity", "statRealized", "statUnrealized",
         "chartTitle", "chartSubTitle", "ma5Pill", "ma10Pill", "ma20Pill", "ma60Pill", "rsiPill", "macdPill",
         "chartRangePill", "chartLatestBtn", "priceAlignPill", "chartTooltip", "advisorCyclePill", "advisorState", "advisorText", "advisorTags", "advisorTable",
+        "tradeSignalState", "tradeSignalText", "tradeSignalTags",
         "priceCanvas", "barIndexPill", "qtyInput", "customAmountInput", "customUnitSelect",
         "buyBtn", "sellBtn", "holdBtn", "maxBuyBtn", "customForwardBtn", "toEndBtn",
         "tradeStatus", "equityCanvas", "returnPill", "ledger", "storageMode"
@@ -2235,10 +2271,15 @@
           el.advisorTags.innerHTML = "";
           el.advisorTable.innerHTML = '<tr><td colspan="5">暂无均线数据</td></tr>';
           el.advisorCyclePill.textContent = "均线系统";
+          el.tradeSignalState.textContent = "等待数据";
+          el.tradeSignalState.className = "advisor-state neutral";
+          el.tradeSignalText.textContent = "载入数据后会按 MA5/MA10、缠绕、MACD 动能和量能结构判断当前是否接近买点或卖点。";
+          el.tradeSignalTags.innerHTML = "";
           return;
         }
 
         const analysis = analyzeMovingAverages(bars, state.currentIndex);
+        const signal = analyzeTradeSignal(bars, state.currentIndex);
         el.advisorState.textContent = analysis.state;
         el.advisorState.className = `advisor-state ${analysis.tone}`;
         el.advisorText.textContent = analysis.text;
@@ -2256,6 +2297,12 @@
               <td>${escapeHtml(row.meaning)}</td>
             </tr>
           `)
+          .join("");
+        el.tradeSignalState.textContent = signal.state;
+        el.tradeSignalState.className = `advisor-state ${signal.tone}`;
+        el.tradeSignalText.textContent = signal.text;
+        el.tradeSignalTags.innerHTML = signal.tags
+          .map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`)
           .join("");
       }
 
@@ -2377,6 +2424,238 @@
         };
       }
 
+      function analyzeTradeSignal(bars, index) {
+        const bar = bars[index];
+        if (!bar) {
+          return makeTradeSignal("等待数据", "neutral", "载入数据后会按 MA5/MA10、缠绕、MACD 动能和量能结构判断当前是否接近买点或卖点。", []);
+        }
+
+        const price = analysisClose(bar);
+        const ma5 = bar.ma5;
+        const ma10 = bar.ma10;
+        const ma20 = bar.ma20;
+        if (!Number.isFinite(ma5) || !Number.isFinite(ma10) || index < 35) {
+          return makeTradeSignal("样本不足", "neutral", "买卖点判断至少需要 MA5、MA10 和一段 MACD 历史。当前 K 线还不够，先积累样本。", [
+            `当前 ${index + 1} / ${bars.length}`,
+            `价格 ${formatPrice(price)}`
+          ]);
+        }
+
+        const hasPosition = state.account && state.account.qty > 0;
+        const maGap = Math.abs(ma5 - ma10) / Math.max(0.0001, price);
+        const near510 = maGap < 0.012;
+        const cross18 = countCrosses(bars, index, "ma5", "ma10", 18);
+        const cross80 = countCrosses(bars, index, "ma5", "ma10", 80);
+        const intertwined510 = cross18 >= 2 || near510;
+        const lastCross = findLastMaCross(bars, index, "ma5", "ma10", 90);
+        const trendAge = lastCross ? index - lastCross.index : 999;
+        const recentReturn20 = lookbackReturn(bars, index, 20);
+        const recentReturn60 = lookbackReturn(bars, index, 60);
+        const slope5 = maSlope(bars, index, "ma5", 4);
+        const slope10 = maSlope(bars, index, "ma10", 6);
+        const slope20 = Number.isFinite(ma20) ? maSlope(bars, index, "ma20", 10) : 0;
+        const slope60 = Number.isFinite(bar.ma60) ? maSlope(bars, index, "ma60", 18) : 0;
+        const macd = macdContext(bars, index);
+        const bottomDivergence = detectMacdDivergence(bars, index, "bottom");
+        const topDivergence = detectMacdDivergence(bars, index, "top");
+        const volume = volumeContext(bars, index);
+        const recentLow5 = lowestLow(bars, index, 5);
+        const priorLow40 = lowestLow(bars, index - 5, 40);
+        const recentHigh5 = highestHigh(bars, index, 5);
+        const priorHigh40 = highestHigh(bars, index - 5, 40);
+        const recentNewLow = Number.isFinite(recentLow5) && Number.isFinite(priorLow40) && recentLow5 <= priorLow40 * 1.006;
+        const recentNewHigh = Number.isFinite(recentHigh5) && Number.isFinite(priorHigh40) && recentHigh5 >= priorHigh40 * 0.994;
+        const recoveredFromLow = Number.isFinite(recentLow5) && (price / Math.max(0.0001, recentLow5) - 1 > 0.012 || price > ma5);
+        const retreatedFromHigh = Number.isFinite(recentHigh5) && (price / Math.max(0.0001, recentHigh5) - 1 < -0.01 || price < ma5);
+        const longDown = recentReturn60 < -0.08 || slope20 < -0.018 || slope60 < -0.004;
+        const longUp = recentReturn60 > 0.08 || slope20 > 0.018 || slope60 > 0.004;
+        const volumeNormal = volume.currentRatio < 2.4 && volume.maxRecentRatio < 4;
+        const candidates = [];
+
+        if (longDown && cross80 >= 2 && recentNewLow && recoveredFromLow && bottomDivergence.exists && volume.currentRatio < 2.8) {
+          candidates.push(makeSignalCandidate(
+            "第一买点观察",
+            "buy",
+            "空头趋势末期出现多次 MA5/MA10 缠绕，近期又创新低但 MACD 绿柱力度变弱，且价格有收回迹象。这更像“空头陷阱 + 底背驰”的试探买点，风险是下跌中继仍未结束。",
+            [
+              "空头末期",
+              `MA5/MA10近80K交叉 ${cross80} 次`,
+              bottomDivergence.tag,
+              recoveredFromLow ? "跌破后收回" : "等待收回",
+              volumeNormal ? "量能未异常放大" : "量能偏大"
+            ],
+            hasPosition ? 86 : 92
+          ));
+        } else if (longDown && cross80 >= 2 && recentNewLow && (bottomDivergence.exists || macd.histImproving)) {
+          candidates.push(makeSignalCandidate(
+            "第一买点预警",
+            "watch",
+            "长期偏弱后出现新低和动能减弱迹象，但空头陷阱还没有充分确认。这里更适合观察是否快速收回、是否继续缩短绿柱，而不是盲目抄底。",
+            [
+              "疑似底背驰",
+              `MA5/MA10近80K交叉 ${cross80} 次`,
+              bottomDivergence.exists ? bottomDivergence.tag : "MACD绿柱开始缩短",
+              volumeNormal ? "量能正常" : "量能需警惕"
+            ],
+            68
+          ));
+        }
+
+        if (lastCross && lastCross.type === "golden" && ma5 >= ma10 && trendAge >= 2 && trendAge <= 50) {
+          const crossStart = Math.max(0, lastCross.index);
+          const highSinceCross = rangeHigh(bars, crossStart, index);
+          const lowAroundCross = rangeLow(bars, Math.max(0, lastCross.index - 8), lastCross.index);
+          const returnFromCross = price / Math.max(0.0001, analysisClose(bars[lastCross.index])) - 1;
+          const pullbackFromHigh = price / Math.max(0.0001, highSinceCross) - 1;
+          const startupStrength = slope5 > 0.008 || returnFromCross > 0.025 || highSinceCross / Math.max(0.0001, analysisClose(bars[lastCross.index])) - 1 > 0.035;
+          const firstTouch = countCrosses(bars, index, "ma5", "ma10", Math.min(24, trendAge + 1)) <= 1;
+          const controlledPullback = pullbackFromHigh < -0.012
+            && pullbackFromHigh > -0.16
+            && (!Number.isFinite(ma20) || price >= ma20 * 0.97)
+            && price >= lowAroundCross * 0.98
+            && slope10 > -0.006;
+          const macdControlled = !Number.isFinite(macd.hist) || macd.hist >= 0 || macd.histImproving;
+          if (startupStrength && firstTouch && controlledPullback && (near510 || price <= ma5 * 1.02 || price <= ma10 * 1.025) && volumeNormal && macdControlled) {
+            candidates.push(makeSignalCandidate(
+              "第二买点观察",
+              "buy",
+              "MA5 上穿 MA10 后趋势已有初步转强，当前属于第一次回调靠近或轻微缠绕。回调没有明显破坏结构，量能也没有异常放大，属于比抄底更稳的趋势确认型买点。",
+              [
+                `金叉后 ${trendAge} K`,
+                "第一次回调",
+                startupStrength ? "启动有力度" : "启动力度一般",
+                volumeNormal ? "量能健康" : "量能偏热",
+                macdControlled ? "MACD回调可控" : "MACD仍偏弱"
+              ],
+              hasPosition ? 82 : 95
+            ));
+          } else if (startupStrength && (near510 || price <= ma10 * 1.03) && trendAge <= 50) {
+            candidates.push(makeSignalCandidate(
+              "第二买点预备",
+              "watch",
+              "MA5/MA10 已进入多头后的首次回调观察区，但还需要确认回调不破位、量能不过热、短期动能重新转强。",
+              [
+                `金叉后 ${trendAge} K`,
+                firstTouch ? "首次靠近" : "缠绕次数增加",
+                volumeNormal ? "量能正常" : "量能偏热",
+                macdControlled ? "动能改善" : "动能待改善"
+              ],
+              72
+            ));
+          }
+        }
+
+        if (longUp && cross80 >= 2 && recentNewHigh && retreatedFromHigh && topDivergence.exists) {
+          candidates.push(makeSignalCandidate(
+            "第一卖点观察",
+            "sell",
+            "多头趋势后期出现 MA5/MA10 缠绕，近期价格再创新高但 MACD 红柱面积或峰值变弱，并且价格从高位回落。这属于“顶背驰 + 高位缠绕”的第一卖点观察区。",
+            [
+              "多头末期",
+              `MA5/MA10近80K交叉 ${cross80} 次`,
+              topDivergence.tag,
+              retreatedFromHigh ? "冲高后回落" : "等待回落确认",
+              volumeNormal ? "量能未继续放大" : "量能异常"
+            ],
+            hasPosition ? 98 : 88
+          ));
+        } else if (longUp && recentNewHigh && (topDivergence.exists || macd.histWeakening)) {
+          candidates.push(makeSignalCandidate(
+            "第一卖点预警",
+            "watch",
+            "价格仍在高位，但上涨动能已经开始变弱。若后续跌回 MA5/MA10 或继续出现缠绕，就要把它当作第一卖点风险处理。",
+            [
+              "疑似顶背驰",
+              topDivergence.exists ? topDivergence.tag : "MACD红柱开始缩短",
+              `60K涨跌 ${formatPercent(recentReturn60 * 100)}`
+            ],
+            74
+          ));
+        }
+
+        if (lastCross && lastCross.type === "death" && ma5 <= ma10 && trendAge >= 2 && trendAge <= 50) {
+          const crossStart = Math.max(0, lastCross.index);
+          const lowSinceCross = rangeLow(bars, crossStart, index);
+          const reboundFromLow = price / Math.max(0.0001, lowSinceCross) - 1;
+          const blockedNearMa10 = (near510 || price >= ma5 * 0.995)
+            && price <= ma10 * 1.018
+            && (!Number.isFinite(ma20) || price < ma20 * 1.015)
+            && slope10 < 0.004;
+          const reboundWeak = reboundFromLow > 0.018 && (macd.hist <= 0 || macd.histWeakening || !volumeNormal);
+          if (blockedNearMa10 && reboundWeak) {
+            candidates.push(makeSignalCandidate(
+              "第二卖点观察",
+              "sell",
+              "MA5 跌破 MA10 后市场已转弱，当前第一次反弹靠近均线但没有重新转强。这是第一卖点没处理时的补救型卖点，风险是反弹重新站回多头结构。",
+              [
+                `死叉后 ${trendAge} K`,
+                "第一次反弹",
+                `反弹 ${formatPercent(reboundFromLow * 100)}`,
+                blockedNearMa10 ? "受阻于MA10附近" : "仍在反弹",
+                macd.hist <= 0 ? "MACD仍偏弱" : "MACD需确认"
+              ],
+              hasPosition ? 94 : 78
+            ));
+          }
+        }
+
+        if (candidates.length) {
+          candidates.sort((a, b) => b.score - a.score);
+          const best = candidates[0];
+          return makeTradeSignal(best.state, best.tone, best.text, [
+            ...best.tags.filter(Boolean),
+            hasPosition ? `当前持仓 ${formatQuantity(state.account.qty)}` : "当前空仓或未开始账户",
+            "仅作规则提示"
+          ]);
+        }
+
+        if (ma5 > ma10) {
+          return makeTradeSignal(
+            hasPosition ? "持有观察" : "等待第二买点",
+            "hold",
+            hasPosition
+              ? "MA5 仍在 MA10 上方，当前没有检测到明确卖点。按这套规则，卖点没出现时以持有和跟踪风险为主。"
+              : "MA5 在 MA10 上方，但当前不是低位回调买点。更符合规则的做法是等第一次有效回调、缠绕或靠近 MA10 后再判断。",
+            [
+              "MA5 > MA10",
+              intertwined510 ? "短线缠绕" : "短线多头",
+              `MACD ${macd.label}`,
+              `量能 ${volume.label}`
+            ]
+          );
+        }
+
+        if (ma5 < ma10) {
+          return makeTradeSignal(
+            hasPosition ? "防守观察" : "空仓等待",
+            hasPosition ? "hold" : "neutral",
+            hasPosition
+              ? "MA5 在 MA10 下方，短线结构偏弱；若后续反弹靠近 MA10 但无法转强，要重点观察第二卖点。"
+              : "MA5 在 MA10 下方，当前还没有形成空头末期背驰买点，也没有形成多头后的第二买点。系统内更适合等待。",
+            [
+              "MA5 < MA10",
+              intertwined510 ? "缠绕观察" : "短线偏弱",
+              `MACD ${macd.label}`,
+              `量能 ${volume.label}`
+            ]
+          );
+        }
+
+        return makeTradeSignal("缠绕观察", "watch", "MA5 和 MA10 接近重合，方向还没有选择。这里关键不是预测涨跌，而是等待它演化成中继、转折、买点或卖点。", [
+          "MA5 ≈ MA10",
+          `近18K交叉 ${cross18} 次`,
+          `MACD ${macd.label}`
+        ]);
+      }
+
+      function makeTradeSignal(stateLabel, tone, text, tags) {
+        return { state: stateLabel, tone, text, tags: tags.filter(Boolean).slice(0, 7) };
+      }
+
+      function makeSignalCandidate(stateLabel, tone, text, tags, score) {
+        return { state: stateLabel, tone, text, tags, score };
+      }
+
       function makeMaRow(bars, index, item, price) {
         const value = bars[index][item.key];
         if (!Number.isFinite(value)) {
@@ -2433,6 +2712,150 @@
           previousSide = side;
         }
         return crosses;
+      }
+
+      function findLastMaCross(bars, index, keyA, keyB, lookback) {
+        const start = Math.max(1, index - lookback + 1);
+        for (let i = index; i >= start; i -= 1) {
+          const prevA = bars[i - 1] && bars[i - 1][keyA];
+          const prevB = bars[i - 1] && bars[i - 1][keyB];
+          const nowA = bars[i] && bars[i][keyA];
+          const nowB = bars[i] && bars[i][keyB];
+          if (![prevA, prevB, nowA, nowB].every(Number.isFinite)) continue;
+          if (prevA <= prevB && nowA > nowB) return { index: i, type: "golden" };
+          if (prevA >= prevB && nowA < nowB) return { index: i, type: "death" };
+        }
+        return null;
+      }
+
+      function lookbackReturn(bars, index, lookback) {
+        const start = Math.max(0, index - lookback);
+        const prev = analysisClose(bars[start]);
+        const now = analysisClose(bars[index]);
+        if (!Number.isFinite(prev) || prev === 0 || !Number.isFinite(now)) return 0;
+        return now / prev - 1;
+      }
+
+      function lowestLow(bars, index, lookback) {
+        if (index < 0) return NaN;
+        return rangeLow(bars, Math.max(0, index - lookback + 1), Math.min(index, bars.length - 1));
+      }
+
+      function highestHigh(bars, index, lookback) {
+        if (index < 0) return NaN;
+        return rangeHigh(bars, Math.max(0, index - lookback + 1), Math.min(index, bars.length - 1));
+      }
+
+      function rangeLow(bars, start, end) {
+        let low = Infinity;
+        for (let i = Math.max(0, start); i <= Math.min(end, bars.length - 1); i += 1) {
+          low = Math.min(low, analysisLow(bars[i]));
+        }
+        return low === Infinity ? NaN : low;
+      }
+
+      function rangeHigh(bars, start, end) {
+        let high = -Infinity;
+        for (let i = Math.max(0, start); i <= Math.min(end, bars.length - 1); i += 1) {
+          high = Math.max(high, analysisHigh(bars[i]));
+        }
+        return high === -Infinity ? NaN : high;
+      }
+
+      function macdContext(bars, index) {
+        const hist = bars[index] && bars[index].macdHist;
+        const prev = bars[Math.max(0, index - 3)] && bars[Math.max(0, index - 3)].macdHist;
+        const histImproving = Number.isFinite(hist) && Number.isFinite(prev) && hist > prev;
+        const histWeakening = Number.isFinite(hist) && Number.isFinite(prev) && hist < prev;
+        let label = "样本不足";
+        if (Number.isFinite(hist)) {
+          if (hist < 0 && histImproving) label = "绿柱缩短";
+          else if (hist < 0) label = "绿柱扩大";
+          else if (hist > 0 && histWeakening) label = "红柱缩短";
+          else if (hist > 0) label = "红柱扩大";
+          else label = "接近零轴";
+        }
+        return { hist, histImproving, histWeakening, label };
+      }
+
+      function detectMacdDivergence(bars, index, type) {
+        const positive = type === "top";
+        const segments = macdSegments(bars, index, positive, 150);
+        if (segments.length < 2) {
+          return { exists: false, tag: positive ? "未见顶背驰" : "未见底背驰" };
+        }
+        const current = segments[segments.length - 1];
+        const previous = segments[segments.length - 2];
+        if (current.end < index - 8 || previous.area <= 0 || current.area <= 0) {
+          return { exists: false, tag: positive ? "顶背驰未确认" : "底背驰未确认" };
+        }
+        const priceExtended = positive
+          ? current.high >= previous.high * 0.995
+          : current.low <= previous.low * 1.005;
+        const weaker = current.area < previous.area * 0.82 || current.peak < previous.peak * 0.82;
+        const ratio = current.area / previous.area;
+        return {
+          exists: priceExtended && weaker,
+          tag: positive
+            ? `MACD红柱面积 ${formatNumber(ratio * 100, 0)}%`
+            : `MACD绿柱面积 ${formatNumber(ratio * 100, 0)}%`
+        };
+      }
+
+      function macdSegments(bars, index, positive, lookback) {
+        const start = Math.max(0, index - lookback + 1);
+        const segments = [];
+        let current = null;
+        for (let i = start; i <= index; i += 1) {
+          const hist = bars[i] && bars[i].macdHist;
+          const active = Number.isFinite(hist) && (positive ? hist > 0 : hist < 0);
+          if (active) {
+            if (!current) {
+              current = { start: i, end: i, area: 0, peak: 0, high: -Infinity, low: Infinity };
+            }
+            current.end = i;
+            current.area += Math.abs(hist);
+            current.peak = Math.max(current.peak, Math.abs(hist));
+            current.high = Math.max(current.high, analysisHigh(bars[i]));
+            current.low = Math.min(current.low, analysisLow(bars[i]));
+          } else if (current) {
+            segments.push(current);
+            current = null;
+          }
+        }
+        if (current) segments.push(current);
+        return segments.filter((segment) => segment.end - segment.start >= 1);
+      }
+
+      function volumeContext(bars, index) {
+        const avg20 = averageVolume(bars, index, 20);
+        const currentVolume = Number(bars[index] && bars[index].volume) || 0;
+        const currentRatio = avg20 > 0 ? currentVolume / avg20 : 1;
+        const start = Math.max(0, index - 14);
+        let maxVolume = 0;
+        for (let i = start; i <= index; i += 1) {
+          maxVolume = Math.max(maxVolume, Number(bars[i] && bars[i].volume) || 0);
+        }
+        const maxRecentRatio = avg20 > 0 ? maxVolume / avg20 : 1;
+        let label = "正常";
+        if (currentRatio >= 2.4 || maxRecentRatio >= 4) label = "异常放大";
+        else if (currentRatio >= 1.5) label = "温和放大";
+        else if (currentRatio <= 0.7) label = "缩量";
+        return { currentRatio, maxRecentRatio, label };
+      }
+
+      function averageVolume(bars, index, lookback) {
+        const start = Math.max(0, index - lookback + 1);
+        let sum = 0;
+        let count = 0;
+        for (let i = start; i <= index; i += 1) {
+          const volume = Number(bars[i] && bars[i].volume);
+          if (Number.isFinite(volume) && volume >= 0) {
+            sum += volume;
+            count += 1;
+          }
+        }
+        return count ? sum / count : 0;
       }
 
       function renderLedger() {

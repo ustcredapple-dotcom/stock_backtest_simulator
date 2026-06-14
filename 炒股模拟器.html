@@ -1465,12 +1465,21 @@
 
       async function fetchMarketDataset(symbol, interval, range) {
         const safeRange = normalizeRangeForInterval(range, interval);
-        const dataset = await fetchYahooDataset(symbol, interval, safeRange);
-        if (safeRange !== range) {
-          dataset.range = safeRange;
-          dataset.source = `${dataset.source} · ${range} 已自动调整为 ${safeRange}`;
+        const attempts = downloadRangeAttempts(interval, safeRange);
+        const invalid = [];
+        for (const attemptRange of attempts) {
+          const dataset = await fetchYahooDataset(symbol, interval, attemptRange);
+          const mismatch = datasetGranularityMismatch(dataset, interval);
+          if (!mismatch) {
+            const notes = [];
+            if (safeRange !== range) notes.push(`${range} 已自动调整为 ${safeRange}`);
+            if (attemptRange !== safeRange) notes.push(`${safeRange} 返回粗粒度，已改用 ${attemptRange} 保持 ${interval}`);
+            if (notes.length) dataset.source = `${dataset.source} · ${notes.join(" · ")}`;
+            return dataset;
+          }
+          invalid.push(`${attemptRange}: ${mismatch}`);
         }
-        return dataset;
+        throw new Error(`数据源没有返回真正的 ${interval} K 线（${invalid.join("；")}）。请换一个下载范围，或稍后重试数据源。`);
       }
 
       async function fetchYahooDataset(symbol, interval, range) {
@@ -1523,6 +1532,7 @@
           displayName: meta.shortName || meta.longName || symbol.toUpperCase(),
           interval,
           range,
+          actualGranularity: meta.dataGranularity || interval,
           currency: meta.currency || guessCurrency(symbol),
           exchange: meta.exchangeName || meta.fullExchangeName || "",
           source: "Yahoo Finance Chart",
@@ -1593,6 +1603,42 @@
         if (interval === "1m" && !["1d", "5d", "7d"].includes(range)) return "7d";
         if (intraday && ["1y", "5y", "10y", "max"].includes(range)) return "60d";
         return range;
+      }
+
+      function downloadRangeAttempts(interval, range) {
+        if (interval !== "1d") return [range];
+        const fallback = range === "max"
+          ? ["max", "10y", "5y", "1y"]
+          : range === "10y"
+            ? ["10y", "5y", "1y"]
+            : range === "5y"
+              ? ["5y", "1y"]
+              : [range];
+        return Array.from(new Set(fallback));
+      }
+
+      function datasetGranularityMismatch(dataset, requestedInterval) {
+        const actual = String(dataset.actualGranularity || "").toLowerCase();
+        if (actual && !granularityMatches(requestedInterval, actual)) {
+          return `Yahoo 实际返回 ${actual}`;
+        }
+        const quality = dataset.dataQuality || analyzeDataQuality(dataset.bars, requestedInterval);
+        if (quality.intervalMismatch) {
+          return quality.warnings.join("；") || "时间间隔和请求周期不一致";
+        }
+        return "";
+      }
+
+      function granularityMatches(requestedInterval, actualGranularity) {
+        const requested = String(requestedInterval || "").toLowerCase();
+        const actual = String(actualGranularity || "").toLowerCase();
+        const aliases = {
+          "60m": ["60m", "1h"],
+          "1mo": ["1mo", "1mo"],
+          "1wk": ["1wk", "1w"],
+          "1d": ["1d"]
+        };
+        return (aliases[requested] || [requested]).includes(actual);
       }
 
       function normalizeDataset(dataset) {
@@ -1686,7 +1732,7 @@
       }
 
       function analyzeDataQuality(bars, interval) {
-        const quality = { maxGapMs: 0, medianGapMs: 0, warnings: [] };
+        const quality = { maxGapMs: 0, medianGapMs: 0, intervalMismatch: false, warnings: [] };
         if (!Array.isArray(bars) || bars.length < 2) return quality;
         const gaps = [];
         for (let i = 1; i < bars.length; i += 1) {
@@ -1700,6 +1746,7 @@
         const day = 24 * 60 * 60 * 1000;
         if (interval === "1d") {
           if (quality.medianGapMs > day * 3.5) {
+            quality.intervalMismatch = true;
             quality.warnings.push(`实际间隔中位数 ${formatGap(quality.medianGapMs)}，不像日 K`);
           }
           if (quality.maxGapMs > day * 5) {
@@ -1714,8 +1761,16 @@
       }
 
       function dataQualityText(dataset) {
-        const warnings = dataset && dataset.dataQuality && dataset.dataQuality.warnings;
-        return warnings && warnings.length ? warnings.join("；") : "";
+        if (!dataset) return "";
+        const warnings = [];
+        const actual = String(dataset.actualGranularity || "").toLowerCase();
+        if (actual && !granularityMatches(dataset.interval, actual)) {
+          warnings.push(`Yahoo实际返回 ${actual}`);
+        }
+        if (dataset.dataQuality && dataset.dataQuality.warnings) {
+          warnings.push(...dataset.dataQuality.warnings);
+        }
+        return warnings.length ? warnings.join("；") : "";
       }
 
       function formatGap(ms) {
